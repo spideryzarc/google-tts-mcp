@@ -59,14 +59,17 @@ partitioning:
   respect_existing_delimiters: true
 
 voices:
-  default_voice: "Puck"
+  scene: "A high-quality recording studio, two friends talking casually into dynamic mics."
+  context: "Podcast style. Fast, slightly overlapping pacing. Tone is energetic, conversational, and warm."
   speakers:
     "Speaker 1":
       voice_name: "Aoede"
-      prompt_prefix: "Speak in an enthusiastic and natural tone: "
+      profile: "An authoritative main news anchor."
+      directors_note: "Style: Vocal Smile. Pace: Natural conversational pace. Accent: American (Gen)."
     "Speaker 2":
       voice_name: "Puck"
-      prompt_prefix: "Speak in an explanatory, academic, and clear tone: "
+      profile: "A professional field correspondent."
+      directors_note: "Style: Newscaster. Pace: Rapid Fire. Accent: American (Gen)."
 
 audio:
   format: "wav"

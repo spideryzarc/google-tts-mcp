@@ -49,9 +49,51 @@ async def test_server_dry_run_on_samples():
             assert part["char_count"] <= 1300
 
 
+@pytest.mark.parametrize("sample_path", get_all_sample_files(), ids=lambda p: p.name)
+@pytest.mark.asyncio
+async def test_dry_run_tts_generation_all_samples(sample_path: Path):
+    """Dry-run integration test: generates 48kHz WAV audio for every sample in samples/ without calling Google AI Studio API."""
+    assert sample_path.exists()
+
+    sample_out_dir = OUTPUT_DIR / f"dry_{sample_path.stem}"
+    sample_out_dir.mkdir(parents=True, exist_ok=True)
+
+    result_json = await generate_tts_from_file(
+        file_path=str(sample_path),
+        output_dir=str(sample_out_dir),
+        max_chars_per_partition=1300,
+        combine_parts=True,
+        dry_run=True
+    )
+
+    data = json.loads(result_json)
+    assert data["status"] == "SUCCESS", f"Dry-run generation failed for {sample_path.name}: {data}"
+    assert data["total_partitions"] > 0
+
+    # Verify generated partition WAV files
+    for part in data["partition_files"]:
+        wav_path = Path(part["filepath"])
+        assert wav_path.exists(), f"WAV file not created: {wav_path}"
+        assert wav_path.stat().st_size > 0, f"WAV file is empty: {wav_path}"
+
+        with wave.open(str(wav_path), "rb") as wf:
+            assert wf.getframerate() == 48000
+            assert wf.getnchannels() == 1
+            assert wf.getsampwidth() == 2
+
+    # Verify complete concatenated WAV file
+    if data.get("complete_file"):
+        complete_path = Path(data["complete_file"]["filepath"])
+        assert complete_path.exists()
+        assert complete_path.stat().st_size > 0
+        with wave.open(str(complete_path), "rb") as wf:
+            assert wf.getframerate() == 48000
+            assert wf.getnchannels() == 1
+
+
 @pytest.mark.skipif(
-    not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
-    reason="GEMINI_API_KEY or GOOGLE_API_KEY environment variable not set."
+    os.environ.get("RUN_LIVE_API_TESTS") != "1" or not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
+    reason="Set RUN_LIVE_API_TESTS=1 and ensure API key is available to run live API tests."
 )
 @pytest.mark.parametrize("sample_path", get_all_sample_files(), ids=lambda p: p.name)
 @pytest.mark.asyncio

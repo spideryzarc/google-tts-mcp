@@ -14,6 +14,7 @@ class GeneratorConfig:
 @dataclass
 class RateLimitConfig:
     max_requests_per_minute: int = 15
+    max_requests_per_day: int = 10
     max_concurrent_requests: int = 2
     retry_attempts: int = 3
     backoff_factor: float = 2.0
@@ -94,6 +95,7 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     )
     rate_limit = RateLimitConfig(
         max_requests_per_minute=rate_data.get("max_requests_per_minute", 15),
+        max_requests_per_day=rate_data.get("max_requests_per_day", 10),
         max_concurrent_requests=rate_data.get("max_concurrent_requests", 2),
         retry_attempts=rate_data.get("retry_attempts", 3),
         backoff_factor=float(rate_data.get("backoff_factor", 2.0))
@@ -113,10 +115,19 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         combine_full=bool(audio_data.get("combine_full", True))
     )
 
+    voices_dict = voices_data if isinstance(voices_data, dict) else {}
+    if voices_dict:
+        speakers = voices_dict.get("speakers", {})
+        if isinstance(speakers, dict) and speakers:
+            first_speaker = next(iter(speakers.values()))
+            if isinstance(first_speaker, dict) and "voice_name" in first_speaker:
+                if not voices_dict.get("default_voice"):
+                    voices_dict["default_voice"] = first_speaker["voice_name"]
+
     return AppConfig(
         generator=generator,
         rate_limit=rate_limit,
         partitioning=partitioning,
-        voices=voices_data if isinstance(voices_data, dict) else {},
+        voices=voices_dict,
         audio=audio
     )

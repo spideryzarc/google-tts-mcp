@@ -313,9 +313,10 @@ async def generate_tts_from_file(
     config_path: Optional[str] = None,
     output_dir: Optional[str] = None,
     max_chars_per_partition: int = 1300,
-    combine_parts: bool = True
+    combine_parts: bool = True,
+    dry_run: bool = False
 ) -> str:
-    """Generates 48kHz WAV audio files from a .tts script using Google AI Studio API.
+    """Generates 48kHz WAV audio files from a .tts script using Google AI Studio API (or dry-run simulation).
 
     Args:
         file_path: Path to the .tts script file (e.g. samples/aula04-script-duo.tts).
@@ -323,6 +324,7 @@ async def generate_tts_from_file(
         output_dir: Output directory path (defaults to config.yaml setting or ./output).
         max_chars_per_partition: Character limit per partition (default 1300).
         combine_parts: If True, also generates the full merged {input_name}_complete.wav file.
+        dry_run: If True, simulates speech generation with synthetic PCM audio without invoking the Google API.
     """
     path = Path(file_path)
     if not path.is_file():
@@ -347,7 +349,8 @@ async def generate_tts_from_file(
     input_basename = get_input_basename(file_path)
     start_time = time.time()
 
-    logger.info(f"Starting TTS generation for '{path.name}': {total_chunks} partitions, {len(text)} characters.")
+    mode_label = "DRY RUN" if dry_run else "LIVE API"
+    logger.info(f"Starting TTS generation ({mode_label}) for '{path.name}': {total_chunks} partitions, {len(text)} characters.")
 
     progress_info = {
         "status": "PROCESSING",
@@ -375,8 +378,13 @@ async def generate_tts_from_file(
         progress_info["elapsed_seconds"] = round(time.time() - start_time, 1)
         _write_progress_json(out_directory, progress_info)
 
-        # Generate PCM bytes from Google AI Studio API
-        pcm_bytes = await client.generate_speech_pcm(chunk.text)
+        if dry_run:
+            # Generate 1 second of 24kHz 16-bit mono PCM silence for synthetic dry run testing
+            pcm_bytes = b"\x00\x00" * 24000
+        else:
+            # Generate PCM bytes from Google AI Studio API
+            pcm_bytes = await client.generate_speech_pcm(chunk.text)
+
         pcm_chunks.append(pcm_bytes)
 
         # Convert to 48kHz pcm_s16le WAV
