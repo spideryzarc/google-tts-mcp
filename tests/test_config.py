@@ -1,7 +1,7 @@
 import json
 import pytest
 from google_tts_mcp.config import load_config
-from google_tts_mcp.server import get_config_schema, get_config_template, check_job_progress
+from google_tts_mcp.server import get_config_template, check_job_progress
 
 
 def test_load_default_config():
@@ -18,13 +18,6 @@ def test_load_existing_config():
     assert config.audio.sample_rate == 48000
     assert config.voices.get("default_voice") == "Kore"
 
-
-def test_mcp_config_schema_resource():
-    schema_json = get_config_schema()
-    parsed = json.loads(schema_json)
-    assert parsed["title"] == "Google TTS MCP Configuration Schema"
-    assert "generator" in parsed["properties"]
-    assert "audio" in parsed["properties"]
 
 
 def test_mcp_config_template_resource():

@@ -1,37 +1,84 @@
+# ==============================================================================
+# Google TTS MCP Configuration Template
+# ==============================================================================
+# This file configures the Google AI Studio TTS generation server parameters,
+# rate limits, text partitioning limits, speaker voice profiles, and output audio settings.
+
+# ------------------------------------------------------------------------------
+# Model Generator Configuration
+# ------------------------------------------------------------------------------
 generator:
+  # API provider name (default: "google-ai-studio")
   provider: "google-ai-studio"
+  # Target Gemini TTS model identifier (e.g., "gemini-2.5-flash-preview-tts" or "gemini-3.1-flash-tts-preview")
   model: "gemini-2.5-flash-preview-tts"
 
+# ------------------------------------------------------------------------------
+# Rate Limiting & Quota Protections
+# ------------------------------------------------------------------------------
 rate_limit:
+  # Maximum allowed API requests per minute (RPM)
   max_requests_per_minute: 15
+  # Maximum daily request limit for Gemini free tier (prevents unrecoverable retry loops)
   max_requests_per_day: 10
+  # Maximum concurrent parallel requests to Google AI Studio
   max_concurrent_requests: 2
+  # Number of retry attempts on transient network errors or rate limit warnings (429/503)
   retry_attempts: 3
+  # Exponential backoff factor multiplier (in seconds) between retries
   backoff_factor: 2.0
 
+# ------------------------------------------------------------------------------
+# Text Script Partitioning (Chunking) Settings
+# ------------------------------------------------------------------------------
 partitioning:
+  # Maximum characters per partition chunk (1300 chars is recommended for optimal prosody & quality)
   max_chars_per_partition: 1300
+  # If true, preserves existing section break delimiters ('---') when chunking scripts
   respect_existing_delimiters: true
 
+# ------------------------------------------------------------------------------
+# Voices & Multi-Speaker Configuration
+# ------------------------------------------------------------------------------
 voices:
+  # Global recording scene description passed as system instructions to Gemini TTS
   scene: "A high-quality recording studio, two friends talking casually into dynamic mics."
+  # Global audio sample context & pacing style (e.g., podcast style, energetic tone)
   context: "Podcast style. Fast, slightly overlapping pacing. Tone is energetic, conversational, and warm."
+
+  # Speaker profiles mapping script character names to Google TTS voices and director notes
+  # Note: The first speaker listed below (Speaker 1) serves as the default voice if omitted.
   speakers:
     "Speaker 1":
+      # Prebuilt voice name (e.g., Kore, Aoede, Puck, Charon, Fenrir)
       voice_name: "Kore"
+      # Character audio profile description
       profile: "An authoritative main news anchor."
+      # Director's note specifying vocal style, pace, and accent
       directors_note: "Style: Vocal Smile. Pace: Natural conversational pace. Accent: American (Gen)."
+
     "Speaker 2":
       voice_name: "Aoede"
       profile: "A professional field correspondent."
       directors_note: "Style: Vocal Smile. Pace: Natural conversational pace. Accent: American (Gen)."
 
+# ------------------------------------------------------------------------------
+# Output Audio File Settings
+# ------------------------------------------------------------------------------
 audio:
+  # Output file format ("wav" or "pcm")
   format: "wav"
+  # Target audio sample rate in Hz (48000 Hz recommended for video editor sync)
   sample_rate: 48000
+  # Bytes per audio sample (2 = 16-bit PCM s16le)
   sample_width_bytes: 2
+  # Number of audio channels (1 = Mono)
   channels: 1
+  # Output directory path where WAV audio files will be saved
   output_dir: "output"
+  # Pause duration (in milliseconds) inserted between concatenated partition chunks
   inter_partition_pause_ms: 300
+  # Filename pattern for individual partition files
   naming_pattern: "{input_name}_part{part_num:02d}.wav"
+  # If true, concatenates all partition files into a single complete audio file ({input_name}_complete.wav)
   combine_full: true
