@@ -1,0 +1,20 @@
+{
+  "status": "PROCESSING",
+  "input_file": "/home/einstein/projects/google-tts-mcp/samples/long-duo-no-part.tts",
+  "input_name": "long-duo-no-part",
+  "total_partitions": 5,
+  "completed_partitions": 1,
+  "current_partition": 2,
+  "start_time": 1784989341.1229672,
+  "elapsed_seconds": 33.9,
+  "log_file": "/home/einstein/projects/google-tts-mcp/tests/output_artifacts/samples_test_output/long-duo-no-part/generation.log",
+  "partition_files": [
+    {
+      "part_num": 1,
+      "filename": "long-duo-no-part_part01.wav",
+      "filepath": "/home/einstein/projects/google-tts-mcp/tests/output_artifacts/samples_test_output/long-duo-no-part/long-duo-no-part_part01.wav",
+      "bytes": 7082056,
+      "char_count": 1269
+    }
+  ]
+}

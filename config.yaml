@@ -1,0 +1,33 @@
+generator:
+  provider: "google-ai-studio"
+  model: "gemini-2.5-flash-preview-tts"
+
+rate_limit:
+  max_requests_per_minute: 15
+  max_concurrent_requests: 2
+  retry_attempts: 3
+  backoff_factor: 2.0
+
+partitioning:
+  max_chars_per_partition: 1300
+  respect_existing_delimiters: true
+
+voices:
+  default_voice: "Puck"
+  speakers:
+    "Speaker 1":
+      voice_name: "Aoede"
+      prompt_prefix: "Speak in an enthusiastic and natural tone: "
+    "Speaker 2":
+      voice_name: "Puck"
+      prompt_prefix: "Speak in an explanatory, academic, and clear tone: "
+
+audio:
+  format: "wav"
+  sample_rate: 48000
+  sample_width_bytes: 2
+  channels: 1
+  output_dir: "output"
+  inter_partition_pause_ms: 300
+  naming_pattern: "{input_name}_part{part_num:02d}.wav"
+  combine_full: true

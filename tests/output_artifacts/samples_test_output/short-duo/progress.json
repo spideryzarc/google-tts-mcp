@@ -1,0 +1,12 @@
+{
+  "status": "PROCESSING",
+  "input_file": "/home/einstein/projects/google-tts-mcp/samples/short-duo.tts",
+  "input_name": "short-duo",
+  "total_partitions": 1,
+  "completed_partitions": 0,
+  "current_partition": 1,
+  "start_time": 1784989592.1224148,
+  "elapsed_seconds": 0.0,
+  "log_file": "/home/einstein/projects/google-tts-mcp/tests/output_artifacts/samples_test_output/short-duo/generation.log",
+  "partition_files": []
+}

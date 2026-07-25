@@ -1,0 +1,95 @@
+[long pause]
+
+Speaker 2: [matter-of-fact] Hoje vamos mergulhar na Aula 04 de Estatística Aplicada à Biologia, focada em MEDIDAS DE POSIÇÃO.
+
+Speaker 1: [excited] E eu confesso que tava ansiosa por essa aula! Finalmente vamos colocar a mão na massa e fazer contas de verdade... eu não aguentava mais olhar só pra gráfico e tabela sem calcular nada!
+
+Speaker 2: [playful] [chuckles] Chegou a sua hora! A nossa pauta tá dividida em três momentos: um preâmbulo com notação matemática e SOMATÓRIOS, a primeira parte cobrindo MÉDIA, MEDIANA e MODA, e a segunda parte com SEPARATRIZES, OUTLIERS e BOXPLOTS.
+
+[long pause]
+
+Speaker 2: [conversational tone] Começando pelo nosso Preâmbulo com a notação de variáveis e observações. Em bioestatística, usamos a letra $x_i$ para representar o valor da $i$-ésima observação da nossa amostra.
+
+Speaker 2: [conversational tone] E a letra $n$ indica o total de indivíduos ou medições coletadas.
+
+Speaker 1: [casual tone] Por exemplo, se tivermos 10 medições em campo — 5, 7, 8, 9, 10, 12, 15, 18, 20 e 22 — nosso $n$ vale 10, com $x_1$ sendo 5 até $x_{10}$ igual a 22.
+
+
+
+[long pause]
+
+Speaker 2: [conversational tone] Com essa notação organizada, podemos introduzir o operador de SOMATÓRIO, representado pela letra grega sigma maiúsculo.
+
+Speaker 2: [conversational tone] Escrevemos o SOMATÓRIO de $i$ variando de 1 a $n$ de $x_i$ para expressar a soma simples de $x_1$ até $x_n$. Quando o contexto amostral já for evidente, simplificamos escrevendo apenas SOMATÓRIO de $x$.
+
+[long pause]
+
+Speaker 1: [casual tone] Para fixar a notação de SOMATÓRIOS, vamos analisar aquele mesmo conjunto de dados com 10 elementos.
+
+Speaker 1: [casual tone] O slide nos desafia a calcular quatro SOMATÓRIOS diferentes: o SOMATÓRIO total de $i=1$ a 10, o SOMATÓRIO parcial de $i=3$ a 5, a soma dos quadrados dos três primeiros termos, e o SOMATÓRIO geral de $x$.
+
+[long pause]
+
+Speaker 1: [casual tone] Resolvendo item por item: a soma de todos os 10 valores resulta em 126.
+
+Speaker 1: [casual tone] Já a soma do terceiro ao quinto termo considera apenas 8, 9 e 10, totalizando 27. Para os três primeiros termos elevados ao quadrado, temos 5 ao quadrado mais 7 ao quadrado mais 8 ao quadrado, resultando em 138. E o SOMATÓRIO simplificado de $x$ é idêntico ao total de 126.
+
+
+
+[long pause]
+
+Speaker 2: [thoughtful] O SOMATÓRIO possui propriedades algébricas fundamentais. A primeira delas refere-se ao número de termos de um SOMATÓRIO que vai de um limite inferior $a$ até um limite superior $b$.
+
+Speaker 2: [conversational tone] A quantidade total de parcelas é dada pela expressão $b$ menos $a$ mais 1. Se o índice inicial for 1, o número de termos coincide diretamente com o limite superior $b$.
+
+[long pause]
+
+Speaker 2: [thoughtful] A segunda propriedade aborda o SOMATÓRIO de uma constante $k$ que não depende do índice $i$.
+
+Speaker 2: [conversational tone] Somar uma constante $n$ vezes equivale simplesmente a multiplicar a constante pelo número de termos. Se somarmos o valor 3 por 5 vezes, obtemos 5 vezes 3, ou seja, 15.
+
+[long pause]
+
+Speaker 2: [thoughtful] A terceira propriedade estabelece que o SOMATÓRIO de uma soma de duas variáveis $x_i$ e $y_i$ é igual à soma dos SOMATÓRIOS individuais de $x_i$ e $y_i$.
+
+Speaker 1: [casual tone] É a distributiva da soma na prática: agrupamos todas as parcelas de $x$ de um lado e todas as de $y$ do outro, chegando ao mesmo resultado final.
+
+
+
+[long pause]
+
+Speaker 2: [thoughtful] A quarta propriedade mostra o comportamento de uma constante multiplicativa $c$ dentro do SOMATÓRIO.
+
+Speaker 2: [conversational tone] Como a constante multiplica cada termo individualmente, podemos colocá-la em evidência fora do operador. O SOMATÓRIO de $c$ vezes $x_i$ passa a ser $c$ vezes o SOMATÓRIO de $x_i$.
+
+[long pause]
+
+Speaker 2: [conversational tone] Para fechar o preâmbulo, vale ressaltar que outros operadores matemáticos utilizam a mesma estrutura de subíndices e superíndices.
+
+Speaker 2: [conversational tone] O pi maiúsculo representa o produtório, que multiplica uma sequência de termos. Na teoria dos conjuntos, o U maiúsculo indica a união de múltiplos conjuntos $A_i$, e o símbolo de interseção expandido representa a interseção cumulativa de $A_1$ a $A_n$.
+
+[long pause]
+
+Speaker 2: [conversational tone] Entrando agora nas MEDIDAS DE POSIÇÃO propriamente ditas. Elas têm como objetivo resumir uma massa de dados em valores numéricos únicos e altamente representativos.
+
+Speaker 2: [conversational tone] Dividimos essas métricas em dois grandes blocos: as medidas de tendência central, como MÉDIA, MEDIANA e MODA, e as SEPARATRIZES, como QUARTIS, decis e percentis.
+
+
+
+[long pause]
+
+Speaker 2: [conversational tone] As Medidas de Tendência Central indicam onde se localiza o centro de gravidade ou o ponto médio da distribuição.
+
+Speaker 2: [conversational tone] Definimos a MÉDIA como o ponto de equilíbrio dos dados, a MEDIANA como o valor que divide o conjunto exatamente ao meio em duas metades iguais, e a MODA como o valor que surge com maior frequência.
+
+[long pause]
+
+Speaker 2: [conversational tone] A MÉDIA ARITMÉTICA, denotada por $x$ barra, é a medida de tendência central mais universal.
+
+Speaker 2: [thoughtful] Do ponto de vista de aplicação, ela é restrita estritamente a variáveis quantitativas. Sua fórmula é a razão entre a soma de todas as observações pelo número total de dados $n$.
+
+[long pause]
+
+Speaker 1: [casual tone] Vamos ver o cálculo da MÉDIA com aquele conjunto de 10 dados que usamos no preâmbulo.
+
+Speaker 1: [casual tone] Sabendo que o número de observações $n$ é 10 e a soma de todos os elementos é 126, dividimos 126 por 10 para obter uma MÉDIA de 12.6.

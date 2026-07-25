@@ -1,0 +1,24 @@
+[project]
+name = "google-tts-mcp"
+version = "0.1.0"
+description = "MCP server for automated TTS audio generation via Google AI Studio API with smart rate limiting and partitioning"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]>=1.0.0",
+    "google-genai>=0.1.0",
+    "pyyaml>=6.0.1",
+    "aiolimiter>=1.1.0",
+]
+
+[project.scripts]
+google-tts-mcp = "google_tts_mcp.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
