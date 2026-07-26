@@ -17,12 +17,12 @@ generator:
 # Rate Limiting & Quota Protections
 # ------------------------------------------------------------------------------
 rate_limit:
-  # Maximum allowed API requests per minute (RPM)
-  max_requests_per_minute: 15
+  # Maximum allowed API requests per minute (RPM) - Set to 2 to respect Gemini Free Tier 3 RPM limit
+  max_requests_per_minute: 2
   # Maximum daily request limit for Gemini free tier (prevents unrecoverable retry loops)
   max_requests_per_day: 10
   # Maximum concurrent parallel requests to Google AI Studio
-  max_concurrent_requests: 2
+  max_concurrent_requests: 1
   # Number of retry attempts on transient network errors or rate limit warnings (429/503)
   retry_attempts: 3
   # Exponential backoff factor multiplier (in seconds) between retries
