@@ -10,8 +10,8 @@
 generator:
   # API provider name (default: "google-ai-studio")
   provider: "google-ai-studio"
-  # Target Gemini TTS model identifier (e.g., "gemini-2.5-flash-preview-tts" or "gemini-3.1-flash-tts-preview")
-  model: "gemini-2.5-flash-preview-tts"
+  # Target Gemini TTS model identifier (e.g., "gemini-3.1-flash-tts-preview" or "gemini-2.5-flash-preview-tts")
+  model: "gemini-3.1-flash-tts-preview"
 
 # ------------------------------------------------------------------------------
 # Rate Limiting & Quota Protections

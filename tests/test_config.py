@@ -13,7 +13,7 @@ def test_load_default_config():
 
 def test_load_existing_config():
     config = load_config("config.yaml")
-    assert config.generator.model == "gemini-2.5-flash-preview-tts"
+    assert config.generator.model == "gemini-3.1-flash-tts-preview"
     assert config.audio.channels == 1
     assert config.audio.sample_rate == 48000
     assert config.voices.get("default_voice") == "Kore"
@@ -26,7 +26,7 @@ def test_config_user_override_merging(tmp_path):
     config = load_config(str(custom_yaml))
     assert config.voices.get("default_voice") == "Aoede"
     # Options omitted by user naturally inherit from base config.yaml
-    assert config.generator.model == "gemini-2.5-flash-preview-tts"
+    assert config.generator.model == "gemini-3.1-flash-tts-preview"
     assert config.audio.sample_rate == 48000
 
 

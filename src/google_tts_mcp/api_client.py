@@ -228,8 +228,7 @@ class GoogleTTSClient:
             if len(prompt_blocks) > 1:
                 effective_system_prompt = "\n\n".join(prompt_blocks)
 
-        if effective_system_prompt:
-            gen_config.system_instruction = effective_system_prompt
+        full_contents = f"{effective_system_prompt}\n\n## Transcript:\n{text_chunk}" if effective_system_prompt else text_chunk
 
         retry_attempts = self.config.rate_limit.retry_attempts
         backoff_factor = self.config.rate_limit.backoff_factor
@@ -244,7 +243,7 @@ class GoogleTTSClient:
                             None,
                             lambda: genai_client.models.generate_content(
                                 model=model_name,
-                                contents=text_chunk,
+                                contents=full_contents,
                                 config=gen_config
                             )
                         )
