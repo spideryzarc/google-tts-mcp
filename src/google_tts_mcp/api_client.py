@@ -22,11 +22,47 @@ except ImportError:
     GENAI_AVAILABLE = False
 
 
+def detect_script_speakers(text: str, speakers_cfg: dict = None) -> list[str]:
+    """Detects distinct speaker names present in the script text.
+
+    Checks for explicit speaker prefixes like 'Speaker 1:', 'Narrator:', or keys from speakers_cfg.
+    Returns a list of unique detected speaker names in order of appearance.
+    """
+    if not text:
+        return []
+
+    known_speakers = list(speakers_cfg.keys()) if isinstance(speakers_cfg, dict) else []
+    detected = []
+
+    for line in text.splitlines():
+        line_str = line.strip()
+        if not line_str:
+            continue
+
+        found_known = False
+        for spk_name in known_speakers:
+            pattern = rf'^\s*(?:\[\s*{re.escape(spk_name)}\s*\]|{re.escape(spk_name)})\s*:'
+            if re.search(pattern, line_str, re.IGNORECASE):
+                if spk_name not in detected:
+                    detected.append(spk_name)
+                found_known = True
+                break
+
+        if not found_known:
+            match = re.match(r'^\s*([A-Za-z0-9_ -]{1,30})\s*:', line_str)
+            if match:
+                name = match.group(1).strip()
+                if not name.startswith("[") and name not in detected:
+                    detected.append(name)
+
+    return detected
+
+
 class GoogleTTSClient:
     def __init__(self, config: AppConfig):
         self.config = config
         self.api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        
+
         rate_cfg = config.rate_limit
         self.limiter = AsyncLimiter(rate_cfg.max_requests_per_minute, 60)
         self.semaphore = asyncio.Semaphore(rate_cfg.max_concurrent_requests)
@@ -52,11 +88,35 @@ class GoogleTTSClient:
         model_name = self.config.generator.model
         speakers_cfg = self.config.voices.get("speakers", {})
 
-        if isinstance(speakers_cfg, dict) and len(speakers_cfg) > 1 and not voice_name:
+        detected_speakers = detect_script_speakers(text_chunk, speakers_cfg)
+        is_multi_speaker = (
+            isinstance(speakers_cfg, dict)
+            and len(speakers_cfg) > 1
+            and len(detected_speakers) >= 2
+            and not voice_name
+        )
+
+        target_speaker = None
+        if is_multi_speaker:
             # Multi-speaker setup matching official Google AI Studio specification
             speaker_voice_configs = []
+            for spk_name in detected_speakers:
+                spk_info = speakers_cfg.get(spk_name, {})
+                v_name = spk_info.get("voice_name") if isinstance(spk_info, dict) else None
+                if not v_name and isinstance(speakers_cfg, dict):
+                    v_name = "Kore"
+                speaker_voice_configs.append(
+                    types.SpeakerVoiceConfig(
+                        speaker=spk_name,
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                voice_name=v_name or "Kore"
+                            )
+                        )
+                    )
+                )
             for spk_name, spk_info in speakers_cfg.items():
-                if isinstance(spk_info, dict) and "voice_name" in spk_info:
+                if spk_name not in detected_speakers and isinstance(spk_info, dict) and "voice_name" in spk_info:
                     speaker_voice_configs.append(
                         types.SpeakerVoiceConfig(
                             speaker=spk_name,
@@ -74,7 +134,22 @@ class GoogleTTSClient:
             )
         else:
             # Single-speaker setup
-            selected_voice = voice_name or self.config.voices.get("default_voice", "Aoede")
+            selected_voice = voice_name
+            if not selected_voice:
+                if len(detected_speakers) == 1:
+                    target_speaker = detected_speakers[0]
+                    spk_info = speakers_cfg.get(target_speaker, {})
+                    if isinstance(spk_info, dict) and "voice_name" in spk_info:
+                        selected_voice = spk_info["voice_name"]
+
+                if not selected_voice:
+                    selected_voice = self.config.voices.get("default_voice")
+                    if not selected_voice and isinstance(speakers_cfg, dict) and speakers_cfg:
+                        first_spk = next(iter(speakers_cfg.values()))
+                        if isinstance(first_spk, dict):
+                            selected_voice = first_spk.get("voice_name")
+                    selected_voice = selected_voice or "Kore"
+
             speech_config = types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
@@ -82,7 +157,7 @@ class GoogleTTSClient:
                     )
                 )
             )
-        
+
         gen_config = types.GenerateContentConfig(
             response_modalities=["AUDIO"],
             speech_config=speech_config
@@ -97,40 +172,41 @@ class GoogleTTSClient:
             prompt_blocks = []
             prompt_blocks.append("Read the following transcript based on the audio profile and director's note.")
 
-            # Audio Profiles
-            profiles = []
-            for spk_name, spk_info in speakers_cfg.items():
-                if isinstance(spk_info, dict) and spk_info.get("profile"):
-                    profiles.append(f"For {spk_name}: {spk_info['profile']}")
-            if profiles:
-                prompt_blocks.append("# Audio Profile\n" + "\n".join(profiles))
+            # Audio Profiles & Director Notes
+            if is_multi_speaker:
+                profiles = []
+                for spk_name, spk_info in speakers_cfg.items():
+                    if isinstance(spk_info, dict) and spk_info.get("profile"):
+                        profiles.append(f"For {spk_name}: {spk_info['profile']}")
+                if profiles:
+                    prompt_blocks.append("# Audio Profile\n" + "\n".join(profiles))
 
-            # Director's notes
-            notes = []
-            for spk_name, spk_info in speakers_cfg.items():
-                if isinstance(spk_info, dict) and spk_info.get("directors_note"):
-                    notes.append(f"For {spk_name}: {spk_info['directors_note']}")
-            if notes:
-                prompt_blocks.append("# Director's note\n" + "\n".join(notes))
+                notes = []
+                for spk_name, spk_info in speakers_cfg.items():
+                    if isinstance(spk_info, dict) and spk_info.get("directors_note"):
+                        notes.append(f"For {spk_name}: {spk_info['directors_note']}")
+                if notes:
+                    prompt_blocks.append("# Director's note\n" + "\n".join(notes))
+            else:
+                # Single speaker active profiles
+                active_name = target_speaker or (next(iter(speakers_cfg.keys())) if isinstance(speakers_cfg, dict) and speakers_cfg else None)
+                if active_name and isinstance(speakers_cfg, dict) and active_name in speakers_cfg:
+                    spk_info = speakers_cfg[active_name]
+                    if isinstance(spk_info, dict):
+                        if spk_info.get("profile"):
+                            prompt_blocks.append(f"# Audio Profile\nFor {active_name}: {spk_info['profile']}")
+                        if spk_info.get("directors_note"):
+                            prompt_blocks.append(f"# Director's note\nFor {active_name}: {spk_info['directors_note']}")
 
-            # Scene
-            if scene:
+            # Scene & Context
+            if scene and is_multi_speaker:
                 prompt_blocks.append(f"## Scene:\n{scene}")
 
-            # Sample Context
             if context:
                 prompt_blocks.append(f"## Sample Context:\n{context}")
 
             if len(prompt_blocks) > 1:
                 effective_system_prompt = "\n\n".join(prompt_blocks)
-            else:
-                # Fallback to legacy prompt_prefix if structured fields were omitted
-                prefixes = []
-                for spk_name, spk_info in speakers_cfg.items():
-                    if isinstance(spk_info, dict) and spk_info.get("prompt_prefix"):
-                        prefixes.append(f"For {spk_name}:\n{spk_info['prompt_prefix']}")
-                if prefixes:
-                    effective_system_prompt = "\n\n".join(prefixes)
 
         if effective_system_prompt:
             gen_config.system_instruction = effective_system_prompt

@@ -1,0 +1,9 @@
+[clears throat] [conversational tone] Quando a gente precisa atribuir um valor a uma variável dependendo de uma condição, [pauses] o caminho TRADICIONAL é abrir aquele bloco IF ELSE clássico. [casual tone] Aqui no nosso exemplo, definimos um valor de compra [pauses] e queremos calcular o frete.
+
+[chuckles] O JEITO PLEBEU de resolver funciona perfeitamente, mas gasta quatro linhas inteiras só para tomar uma decisão simples: [slow and deliberate] se a compra for de 150 reais ou mais, o frete é ZERO, senão custa 25.
+
+[thoughtful] Em linguagens como C, Java, JavaScript e tantas outras, a gente usaria a interrogação e os dois pontos. [scoffs] Convenhamos: essa sintaxe de C é meio TRUNCADA, pouco amigável e cheia de símbolos [pauses] que mais parecem um CÓDIGO SECRETO do que uma leitura natural.
+
+[excited] Agora sim, o estilo LIKE A SIR! [playful] O Python resolve isso em uma ÚNICA LINHA com uma leitura tão direta e fluida que parece inglês falado: [fast_pace] frete é igual a zero se valor de compra for maior ou igual a 150, senão 25. [energetically] Qualquer pessoa lendo esse código pela PRIMEIRA VEZ entende NA HORA o que está acontecendo!
+
+[reflective] O operador ternário deixa o código ENXUTO, elegante e SUPER LEGÍVEL para atribuições diretas. [conversational tone] Só lembre de não exagerar: [slows down] se a condição for gigante ou cheia de regras compostas, o IF tradicional volta a ser o seu MELHOR AMIGO. [happy] Até a próxima!
