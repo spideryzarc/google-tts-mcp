@@ -50,6 +50,20 @@ voices:
 
   # Speaker profiles mapping script character names to Google TTS voices and director notes
   # Note: The first speaker listed below (Speaker 1) serves as the default voice if omitted.
+  #
+  # Available Vocal Style Options for Director's Notes:
+  #   - Vocal Smile: Bright, sunny, explicitly inviting tone (raised soft palate).
+  #   - Newscaster: Professional, authoritative, clear articulation with standard broadcast cadence.
+  #   - Whisper: Intimate, breathy, close-to-mic proximity effect.
+  #   - Empathetic: Warm, understanding, soft tone with gentle inflections.
+  #   - Promo/Hype: High energy, punchy consonants, elongated vowels on excitement words.
+  #   - Deadpan: Flat affect, minimal pitch variation, dry delivery.
+  #
+  # Available Pace Options for Director's Notes:
+  #   - Natural: Natural conversational pace.
+  #   - Rapid Fire: Fast, energetic, no dead air. Sentences overlap slightly.
+  #   - The Drift: Slow, liquid, zero urgency. Long pauses for breath.
+  #   - Staccato: Short, clipped sentences with distinct pauses between words.
   speakers:
     "Speaker 1":
       # Prebuilt voice name (e.g., Kore, Aoede, Puck, Charon, Fenrir)
@@ -62,7 +76,7 @@ voices:
     "Speaker 2":
       voice_name: "Aoede"
       profile: "A professional field correspondent."
-      directors_note: "Style: Vocal Smile. Pace: Natural conversational pace. Accent: Brazilian Portuguese (pt-BR)."
+      directors_note: "Style: Vocal Smile. Pace: Fast, energetic, no dead air. Sentences overlap slightly. Accent: Brazilian Portuguese (pt-BR)."
 
 # ------------------------------------------------------------------------------
 # Output Audio File Settings
