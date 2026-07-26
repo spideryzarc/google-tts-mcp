@@ -58,6 +58,13 @@ def detect_script_speakers(text: str, speakers_cfg: dict = None) -> list[str]:
     return detected
 
 
+class APIRateLimitError(RuntimeError):
+    """Raised when Google TTS API rate limit or quota is exceeded and retries are exhausted."""
+    def __init__(self, message: str, is_daily_quota: bool = False):
+        super().__init__(message)
+        self.is_daily_quota = is_daily_quota
+
+
 class GoogleTTSClient:
     def __init__(self, config: Optional[AppConfig] = None):
         if config is None:
@@ -267,28 +274,38 @@ class GoogleTTSClient:
                     logger.error(
                         f"[DAILY QUOTA EXCEEDED] Daily limit of {self.config.rate_limit.max_requests_per_day} requests/day reached on Google AI Studio API. Aborting execution immediately."
                     )
-                    raise RuntimeError(
-                        f"Cota diária da API gratuita do Gemini ({self.config.rate_limit.max_requests_per_day} requisições/dia) foi atingida! Execução interrompida imediatamente sem tentar novamente. Detalhes do erro: {e}"
-                    )
+                    raise APIRateLimitError(
+                        f"Cota diária da API gratuita do Gemini ({self.config.rate_limit.max_requests_per_day} requisições/dia) foi atingida! Detalhes: {e}",
+                        is_daily_quota=True
+                    ) from e
 
                 is_rate_limit = "429" in err_msg or "resource_exhausted" in err_msg or "503" in err_msg
-                if is_rate_limit and attempt < retry_attempts:
-                    # Check if Google returned a specific retry delay in the error message
-                    delay_match = re.search(r'retry in (\d+(?:\.\d+)?)s', err_msg) or re.search(r"retrydelay':\s*'(\d+)s'", err_msg)
-                    if delay_match:
-                        sleep_time = float(delay_match.group(1)) + random.uniform(0.5, 1.5)
-                    else:
-                        sleep_time = max(20.0, (backoff_factor ** attempt) * 10.0 + random.uniform(0.5, 1.5))
+                if is_rate_limit:
+                    if attempt < retry_attempts:
+                        # Check if Google returned a specific retry delay in the error message
+                        delay_match = re.search(r'retry in (\d+(?:\.\d+)?)s', err_msg) or re.search(r"retrydelay':\s*'(\d+)s'", err_msg)
+                        if delay_match:
+                            sleep_time = float(delay_match.group(1)) + random.uniform(0.5, 1.5)
+                        else:
+                            sleep_time = max(20.0, (backoff_factor ** attempt) * 10.0 + random.uniform(0.5, 1.5))
 
-                    logger.warning(
-                        f"[RATE LIMIT 429/503] API rate limit hit. Intentional delay: backing off for {sleep_time:.1f}s before retry (Attempt {attempt}/{retry_attempts})..."
-                    )
-                    await asyncio.sleep(sleep_time)
+                        logger.warning(
+                            f"[RATE LIMIT 429/503] API rate limit hit. Intentional delay: backing off for {sleep_time:.1f}s before retry (Attempt {attempt}/{retry_attempts})..."
+                        )
+                        await asyncio.sleep(sleep_time)
+                    else:
+                        logger.error(
+                            f"[RATE LIMIT EXHAUSTED] Rate limit hit and retries exhausted (Attempt {attempt}/{retry_attempts}): {e}"
+                        )
+                        raise APIRateLimitError(
+                            f"Limite de requisições da API atigindo após {retry_attempts} tentativas. Detalhes: {e}",
+                            is_daily_quota=False
+                        ) from e
                 else:
                     logger.error(
                         f"[API ERROR] Request denied or failed on attempt {attempt}/{retry_attempts}: {e}"
                     )
-                    raise RuntimeError(f"Failed to generate speech with Google AI Studio API (Attempt {attempt}/{retry_attempts}): {e}")
+                    raise RuntimeError(f"Failed to generate speech with Google AI Studio API (Attempt {attempt}/{retry_attempts}): {e}") from e
 
         raise RuntimeError("Attempts exhausted while calling Google AI Studio API.")
 

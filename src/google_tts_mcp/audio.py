@@ -72,23 +72,40 @@ def pcm_to_wav(
     return buf.getvalue()
 
 
+def wav_to_pcm(wav_bytes: bytes) -> Tuple[bytes, int]:
+    """Extracts raw PCM bytes and sample rate from WAV file bytes."""
+    buf = io.BytesIO(wav_bytes)
+    with wave.open(buf, 'rb') as wf:
+        framerate = wf.getframerate()
+        pcm_data = wf.readframes(wf.getnframes())
+        return pcm_data, framerate
+
+
 def combine_pcm_chunks(
-    pcm_chunks: List[bytes],
+    pcm_chunks: List[bytes | Tuple[bytes, int]],
     pause_ms: int = 300,
     source_rate: int = 24000,
     target_rate: int = 48000,
     channels: int = 1,
     sample_width: int = 2
 ) -> bytes:
-    """Combines multiple PCM chunks into a single concatenated WAV file with optional silence pause between chunks."""
+    """Combines multiple PCM chunks into a single concatenated WAV file with optional silence pause between chunks.
+    
+    Accepts either raw PCM bytes (resampled according to source_rate -> target_rate) or tuples of (pcm_bytes, sample_rate).
+    """
     silence_bytes = generate_silence_pcm(pause_ms, sample_rate=target_rate, channels=channels, sample_width=sample_width)
 
     combined_pcm = bytearray()
-    for idx, pcm in enumerate(pcm_chunks):
-        if source_rate == 24000 and target_rate == 48000 and channels == 1 and sample_width == 2:
-            resampled = resample_24k_to_48k_mono(pcm)
+    for idx, chunk in enumerate(pcm_chunks):
+        if isinstance(chunk, tuple):
+            pcm_bytes, chunk_rate = chunk
         else:
-            resampled = pcm
+            pcm_bytes, chunk_rate = chunk, source_rate
+
+        if chunk_rate == 24000 and target_rate == 48000 and channels == 1 and sample_width == 2:
+            resampled = resample_24k_to_48k_mono(pcm_bytes)
+        else:
+            resampled = pcm_bytes
 
         combined_pcm.extend(resampled)
         if idx < len(pcm_chunks) - 1 and pause_ms > 0:
@@ -102,3 +119,4 @@ def combine_pcm_chunks(
         wf.writeframes(bytes(combined_pcm))
 
     return buf.getvalue()
+

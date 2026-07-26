@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import os
@@ -9,8 +10,8 @@ from mcp.server.fastmcp import FastMCP
 
 from google_tts_mcp.config import load_config
 from google_tts_mcp.partitioner import partition_text
-from google_tts_mcp.api_client import GoogleTTSClient
-from google_tts_mcp.audio import pcm_to_wav, combine_pcm_chunks
+from google_tts_mcp.api_client import GoogleTTSClient, APIRateLimitError
+from google_tts_mcp.audio import pcm_to_wav, combine_pcm_chunks, wav_to_pcm
 from google_tts_mcp.utils import get_input_basename, format_output_filename, sanitize_filename
 
 # Configure logging
@@ -179,6 +180,7 @@ async def generate_tts_from_file(
     output_dir: Optional[str] = None,
     max_chars_per_partition: int = 1300,
     combine_parts: bool = True,
+    resume: bool = True,
     dry_run: bool = False
 ) -> str:
     """Generates 48kHz WAV audio files from a .tts script using Google AI Studio API (or dry-run simulation).
@@ -189,6 +191,7 @@ async def generate_tts_from_file(
         output_dir: Output directory path (defaults to config.yaml setting or ./output).
         max_chars_per_partition: Character limit per partition (default 1300).
         combine_parts: If True, also generates the full merged {input_name}_complete.wav file.
+        resume: If True, skips already generated valid partition files from a previous run.
         dry_run: If True, simulates speech generation with synthetic PCM audio without invoking the Google API.
     """
     path = Path(file_path)
@@ -197,6 +200,7 @@ async def generate_tts_from_file(
 
     config = load_config(config_path)
     text = path.read_text(encoding="utf-8")
+    script_hash = hashlib.md5(text.encode("utf-8")).hexdigest()
 
     out_directory = Path(output_dir or config.audio.output_dir)
     _setup_file_logging(out_directory)
@@ -221,6 +225,7 @@ async def generate_tts_from_file(
         "status": "PROCESSING",
         "input_file": str(path.resolve()),
         "input_name": input_basename,
+        "script_hash": script_hash,
         "total_partitions": total_chunks,
         "completed_partitions": 0,
         "current_partition": 1,
@@ -237,30 +242,6 @@ async def generate_tts_from_file(
 
     for idx, chunk in enumerate(chunks, start=1):
         chunk_start = time.time()
-        logger.info(f"[{idx}/{total_chunks}] Generating speech for chunk {chunk.part_num} ({chunk.char_count} chars)...")
-
-        progress_info["current_partition"] = idx
-        progress_info["elapsed_seconds"] = round(time.time() - start_time, 1)
-        _write_progress_json(out_directory, progress_info)
-
-        if dry_run:
-            # Generate 1 second of 24kHz 16-bit mono PCM silence for synthetic dry run testing
-            pcm_bytes = b"\x00\x00" * 24000
-        else:
-            # Generate PCM bytes from Google AI Studio API
-            pcm_bytes = await client.generate_speech_pcm(chunk.text)
-
-        pcm_chunks.append(pcm_bytes)
-
-        # Convert to 48kHz pcm_s16le WAV
-        wav_bytes = pcm_to_wav(
-            pcm_bytes=pcm_bytes,
-            source_rate=24000,
-            target_rate=config.audio.sample_rate,
-            channels=config.audio.channels,
-            sample_width=config.audio.sample_width_bytes
-        )
-
         filename = format_output_filename(
             pattern=config.audio.naming_pattern,
             input_name=input_basename,
@@ -268,24 +249,132 @@ async def generate_tts_from_file(
             ext=config.audio.format
         )
         file_dest = out_directory / sanitize_filename(filename)
-        file_dest.write_bytes(wav_bytes)
 
-        chunk_elapsed = round(time.time() - chunk_start, 2)
-        logger.info(f"[{idx}/{total_chunks}] Saved '{file_dest.name}' ({len(wav_bytes)} bytes) in {chunk_elapsed}s.")
+        # Check if partition file can be resumed from disk
+        if resume and file_dest.is_file() and file_dest.stat().st_size > 0:
+            logger.info(f"[{idx}/{total_chunks}] Partition {chunk.part_num} already exists ('{file_dest.name}'). Resuming: skipping API call.")
+            try:
+                wav_bytes = file_dest.read_bytes()
+                pcm_data, sample_rate = wav_to_pcm(wav_bytes)
+                pcm_chunks.append((pcm_data, sample_rate))
 
-        file_info = {
-            "part_num": chunk.part_num,
-            "filename": file_dest.name,
-            "filepath": str(file_dest.resolve()),
-            "bytes": len(wav_bytes),
-            "char_count": chunk.char_count
-        }
-        generated_files.append(file_info)
+                file_info = {
+                    "part_num": chunk.part_num,
+                    "filename": file_dest.name,
+                    "filepath": str(file_dest.resolve()),
+                    "bytes": len(wav_bytes),
+                    "char_count": chunk.char_count,
+                    "resumed": True
+                }
+                generated_files.append(file_info)
 
-        progress_info["completed_partitions"] = idx
-        progress_info["partition_files"].append(file_info)
+                progress_info["completed_partitions"] = idx
+                progress_info["partition_files"].append(file_info)
+                progress_info["elapsed_seconds"] = round(time.time() - start_time, 1)
+                _write_progress_json(out_directory, progress_info)
+                continue
+            except Exception as read_err:
+                logger.warning(f"[{idx}/{total_chunks}] Failed to read existing file '{file_dest.name}': {read_err}. Regenerating chunk...")
+
+        # Process chunk via API or dry run
+        logger.info(f"[{idx}/{total_chunks}] Generating speech for chunk {chunk.part_num} ({chunk.char_count} chars)...")
+
+        progress_info["current_partition"] = idx
         progress_info["elapsed_seconds"] = round(time.time() - start_time, 1)
         _write_progress_json(out_directory, progress_info)
+
+        try:
+            if dry_run:
+                # Generate 1 second of 24kHz 16-bit mono PCM silence for synthetic dry run testing
+                pcm_bytes = b"\x00\x00" * 24000
+            else:
+                # Generate PCM bytes from Google AI Studio API
+                pcm_bytes = await client.generate_speech_pcm(chunk.text)
+
+            pcm_chunks.append(pcm_bytes)
+
+            # Convert to 48kHz pcm_s16le WAV
+            wav_bytes = pcm_to_wav(
+                pcm_bytes=pcm_bytes,
+                source_rate=24000,
+                target_rate=config.audio.sample_rate,
+                channels=config.audio.channels,
+                sample_width=config.audio.sample_width_bytes
+            )
+
+            file_dest.write_bytes(wav_bytes)
+
+            chunk_elapsed = round(time.time() - chunk_start, 2)
+            logger.info(f"[{idx}/{total_chunks}] Saved '{file_dest.name}' ({len(wav_bytes)} bytes) in {chunk_elapsed}s.")
+
+            file_info = {
+                "part_num": chunk.part_num,
+                "filename": file_dest.name,
+                "filepath": str(file_dest.resolve()),
+                "bytes": len(wav_bytes),
+                "char_count": chunk.char_count,
+                "resumed": False
+            }
+            generated_files.append(file_info)
+
+            progress_info["completed_partitions"] = idx
+            progress_info["partition_files"].append(file_info)
+            progress_info["elapsed_seconds"] = round(time.time() - start_time, 1)
+            _write_progress_json(out_directory, progress_info)
+
+        except APIRateLimitError as limit_err:
+            total_elapsed = round(time.time() - start_time, 1)
+            logger.warning(
+                f"[API LIMIT INTERRUPTED] Generation interrupted at partition {idx}/{total_chunks}: {limit_err}. Progress saved."
+            )
+
+            progress_info["status"] = "INTERRUPTED_API_LIMIT"
+            progress_info["interrupted_at_partition"] = idx
+            progress_info["elapsed_seconds"] = total_elapsed
+            progress_info["error"] = str(limit_err)
+            _write_progress_json(out_directory, progress_info)
+
+            return json.dumps({
+                "status": "INTERRUPTED",
+                "reason": "API_LIMIT",
+                "message": f"TTS generation interrupted at partition {idx}/{total_chunks} due to API limit ({limit_err}). Progress saved up to partition {len(generated_files)}. Call generate_tts_from_file again to resume.",
+                "input_file": str(path.resolve()),
+                "output_directory": str(out_directory.resolve()),
+                "completed_partitions": len(generated_files),
+                "total_partitions": total_chunks,
+                "interrupted_at_partition": idx,
+                "elapsed_seconds": total_elapsed,
+                "log_file": str((out_directory / "generation.log").resolve()),
+                "progress_file": str((out_directory / "progress.json").resolve()),
+                "partition_files": generated_files
+            }, indent=2, ensure_ascii=False)
+
+        except Exception as gen_err:
+            total_elapsed = round(time.time() - start_time, 1)
+            logger.error(
+                f"[UNEXPECTED ERROR] Generation failed at partition {idx}/{total_chunks}: {gen_err}."
+            )
+
+            progress_info["status"] = "INTERRUPTED_ERROR"
+            progress_info["interrupted_at_partition"] = idx
+            progress_info["elapsed_seconds"] = total_elapsed
+            progress_info["error"] = str(gen_err)
+            _write_progress_json(out_directory, progress_info)
+
+            return json.dumps({
+                "status": "INTERRUPTED",
+                "reason": "ERROR",
+                "message": f"TTS generation failed at partition {idx}/{total_chunks}: {gen_err}",
+                "input_file": str(path.resolve()),
+                "output_directory": str(out_directory.resolve()),
+                "completed_partitions": len(generated_files),
+                "total_partitions": total_chunks,
+                "interrupted_at_partition": idx,
+                "elapsed_seconds": total_elapsed,
+                "log_file": str((out_directory / "generation.log").resolve()),
+                "progress_file": str((out_directory / "progress.json").resolve()),
+                "partition_files": generated_files
+            }, indent=2, ensure_ascii=False)
 
     complete_file_info = None
     if combine_parts and len(pcm_chunks) > 0:
