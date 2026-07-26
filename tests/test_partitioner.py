@@ -39,3 +39,31 @@ def test_aula04_sample_partitioning():
         assert len(chunks) > 0
         for chunk in chunks:
             assert chunk.char_count <= 1300
+
+
+def test_balanced_partitioning():
+    paragraphs = [
+        "A" * 300,
+        "B" * 250,
+        "C" * 280,
+        "D" * 310,
+        "E" * 290
+    ]
+    text = "\n\n".join(paragraphs)
+    # Total chars: 1438 chars, limit 1300 => 2 balanced chunks (~720 chars each)
+    chunks = partition_text(text, max_chars=1300, respect_existing_delimiters=True)
+    assert len(chunks) == 2
+    # Verify that the difference in length between chunks is small (balanced split)
+    diff = abs(chunks[0].char_count - chunks[1].char_count)
+    assert diff < 300  # Significantly more balanced than greedy (which produced ~1150 vs ~300)
+
+
+def test_sanitize_script_text():
+    from google_tts_mcp.utils import sanitize_script_text
+    raw = "Linha 1\r\n\r\n\r\nLinha 2 \u200b[]\n\n\n\nLinha 3"
+    cleaned = sanitize_script_text(raw)
+    assert "\r" not in cleaned
+    assert "\u200b" not in cleaned
+    assert "[]" not in cleaned
+    assert "\n\n\n" not in cleaned
+    assert cleaned == "Linha 1\n\nLinha 2\n\nLinha 3"

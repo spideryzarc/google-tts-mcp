@@ -1,6 +1,9 @@
+import math
 import re
 from dataclasses import dataclass
 from typing import List
+
+from google_tts_mcp.utils import sanitize_script_text
 
 
 @dataclass
@@ -52,61 +55,74 @@ def _split_long_sentence_fallback(sentence: str, max_chars: int) -> List[str]:
 
 
 def _partition_paragraphs(paragraphs: List[str], max_chars: int) -> List[str]:
-    """Partitions a list of paragraphs into chunks <= max_chars.
+    """Partitions a list of paragraphs into balanced chunks <= max_chars.
+    Calculates target_size per partition to ensure chunks have approximately the same size.
     If a single paragraph exceeds max_chars, it is split into sentences by period boundaries.
     """
-    chunks: List[str] = []
-    current_paragraphs: List[str] = []
-    current_length = 0
+    if not paragraphs:
+        return []
 
-    for para in paragraphs:
-        para_str = para.strip()
-        if not para_str:
+    # Decompose any paragraph > max_chars into sentence units
+    atomic_units: List[str] = []
+    for p in paragraphs:
+        p_str = p.strip()
+        if not p_str:
             continue
-
-        # If a single paragraph itself is larger than max_chars, we split it by sentences (. ! ? :)
-        if len(para_str) > max_chars:
-            if current_paragraphs:
-                chunks.append("\n\n".join(current_paragraphs))
-                current_paragraphs = []
-                current_length = 0
-
-            sentences = _split_into_sentences(para_str)
-            curr_sent_chunk: List[str] = []
-            curr_sent_len = 0
-            for sent in sentences:
-                if len(sent) > max_chars:
-                    if curr_sent_chunk:
-                        chunks.append(" ".join(curr_sent_chunk))
-                        curr_sent_chunk = []
-                        curr_sent_len = 0
-                    sub_parts = _split_long_sentence_fallback(sent, max_chars)
-                    chunks.extend(sub_parts)
-                    continue
-
-                sent_len = len(sent)
-                if curr_sent_chunk and (curr_sent_len + 1 + sent_len > max_chars):
-                    chunks.append(" ".join(curr_sent_chunk))
-                    curr_sent_chunk = [sent]
-                    curr_sent_len = sent_len
+        if len(p_str) > max_chars:
+            sents = _split_into_sentences(p_str)
+            for s in sents:
+                if len(s) > max_chars:
+                    atomic_units.extend(_split_long_sentence_fallback(s, max_chars))
                 else:
-                    curr_sent_chunk.append(sent)
-                    curr_sent_len += (1 if curr_sent_chunk else 0) + sent_len
-            if curr_sent_chunk:
-                chunks.append(" ".join(curr_sent_chunk))
-            continue
-
-        added_len = len(para_str) + (2 if current_paragraphs else 0)  # \n\n separator
-        if current_length + added_len > max_chars and current_paragraphs:
-            chunks.append("\n\n".join(current_paragraphs))
-            current_paragraphs = [para_str]
-            current_length = len(para_str)
+                    atomic_units.append(s)
         else:
-            current_paragraphs.append(para_str)
-            current_length += added_len
+            atomic_units.append(p_str)
 
-    if current_paragraphs:
-        chunks.append("\n\n".join(current_paragraphs))
+    total_chars = sum(len(u) for u in atomic_units) + (len(atomic_units) - 1) * 2
+    if total_chars <= max_chars:
+        return ["\n\n".join(atomic_units)]
+
+    num_chunks = math.ceil(total_chars / max_chars)
+    target_size = math.ceil(total_chars / num_chunks)
+
+    chunks: List[str] = []
+    curr_units: List[str] = []
+    curr_len = 0
+
+    for idx, unit in enumerate(atomic_units):
+        added_len = len(unit) + (2 if curr_units else 0)
+
+        if curr_units:
+            # Check if adding unit exceeds max_chars
+            if curr_len + added_len > max_chars:
+                chunks.append("\n\n".join(curr_units))
+                curr_units = [unit]
+                curr_len = len(unit)
+                rem_units = atomic_units[idx:]
+                rem_len = sum(len(u) for u in rem_units) + (len(rem_units) - 1) * 2
+                rem_chunks = max(1, num_chunks - len(chunks))
+                target_size = math.ceil(rem_len / rem_chunks)
+                continue
+
+            dist_before = abs(curr_len - target_size)
+            dist_after = abs((curr_len + added_len) - target_size)
+
+            # If current chunk has reached or passed target size, and adding unit makes it further:
+            if curr_len >= target_size and dist_after >= dist_before:
+                chunks.append("\n\n".join(curr_units))
+                curr_units = [unit]
+                curr_len = len(unit)
+                rem_units = atomic_units[idx:]
+                rem_len = sum(len(u) for u in rem_units) + (len(rem_units) - 1) * 2
+                rem_chunks = max(1, num_chunks - len(chunks))
+                target_size = math.ceil(rem_len / rem_chunks)
+                continue
+
+        curr_units.append(unit)
+        curr_len += added_len
+
+    if curr_units:
+        chunks.append("\n\n".join(curr_units))
 
     return chunks
 
@@ -115,15 +131,16 @@ def partition_text(text: str, max_chars: int = 1300, respect_existing_delimiters
     """Partitions script text into chunks <= max_chars.
 
     Logic:
-    1. If respect_existing_delimiters is True and text contains '---':
+    1. Sanitize input text (remove zero-width chars, normalize CRLF and empty lines).
+    2. If respect_existing_delimiters is True and text contains '---':
        - Split text by '---'.
        - Check if ALL sections resulting from '---' have len(section.strip()) <= max_chars.
        - If YES, preserve existing sections as partitions.
        - If NO, ignore '---' and fall back to paragraph-level partitioning.
-    2. Paragraph-level partitioning groups paragraphs without breaking them unless a paragraph
+    3. Paragraph-level partitioning groups paragraphs without breaking them unless a paragraph
        exceeds max_chars, in which case it is split by sentences (. ! ? :).
     """
-    raw_text = text.strip()
+    raw_text = sanitize_script_text(text)
     if not raw_text:
         return []
 
