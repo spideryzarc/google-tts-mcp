@@ -19,6 +19,17 @@ def test_load_existing_config():
     assert config.voices.get("default_voice") == "Kore"
 
 
+def test_config_user_override_merging(tmp_path):
+    custom_yaml = tmp_path / "custom_config.yaml"
+    custom_yaml.write_text("voices:\n  default_voice: Aoede\n", encoding="utf-8")
+
+    config = load_config(str(custom_yaml))
+    assert config.voices.get("default_voice") == "Aoede"
+    # Options omitted by user naturally inherit from base config.yaml
+    assert config.generator.model == "gemini-2.5-flash-preview-tts"
+    assert config.audio.sample_rate == 48000
+
+
 
 def test_mcp_config_template_resource():
     template_yaml = get_config_template()

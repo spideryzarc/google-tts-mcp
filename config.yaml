@@ -41,6 +41,8 @@ partitioning:
 # Voices & Multi-Speaker Configuration
 # ------------------------------------------------------------------------------
 voices:
+  # Target language code for speech synthesis (e.g., "pt-BR" for Brazilian Portuguese, "en-US" for US English)
+  language_code: "pt-BR"
   # Global recording scene description passed as system instructions to Gemini TTS
   scene: "A high-quality recording studio, two friends talking casually into dynamic mics."
   # Global audio sample context & pacing style (e.g., podcast style, energetic tone)
@@ -55,12 +57,12 @@ voices:
       # Character audio profile description
       profile: "An authoritative main news anchor."
       # Director's note specifying vocal style, pace, and accent
-      directors_note: "Style: Vocal Smile. Pace: Natural conversational pace. Accent: American (Gen)."
+      directors_note: "Style: Vocal Smile. Pace: Natural conversational pace. Accent: Brazilian Portuguese (pt-BR)."
 
     "Speaker 2":
       voice_name: "Aoede"
       profile: "A professional field correspondent."
-      directors_note: "Style: Vocal Smile. Pace: Natural conversational pace. Accent: American (Gen)."
+      directors_note: "Style: Vocal Smile. Pace: Natural conversational pace. Accent: Brazilian Portuguese (pt-BR)."
 
 # ------------------------------------------------------------------------------
 # Output Audio File Settings

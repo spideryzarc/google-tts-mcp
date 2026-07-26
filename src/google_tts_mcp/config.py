@@ -46,42 +46,56 @@ class AudioConfig:
 
 @dataclass
 class AppConfig:
-    generator: GeneratorConfig = field(default_factory=GeneratorConfig)
-    rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
-    partitioning: PartitioningConfig = field(default_factory=PartitioningConfig)
-    voices: Dict[str, Any] = field(default_factory=lambda: {
-        "default_voice": "Puck",
-        "speakers": {}
-    })
-    audio: AudioConfig = field(default_factory=AudioConfig)
+    generator: GeneratorConfig = field(default_factory=lambda: GeneratorConfig(provider="google-ai-studio", model="gemini-2.5-flash-preview-tts"))
+    rate_limit: RateLimitConfig = field(default_factory=lambda: RateLimitConfig(max_requests_per_minute=15, max_requests_per_day=10, max_concurrent_requests=2, retry_attempts=3, backoff_factor=2.0))
+    partitioning: PartitioningConfig = field(default_factory=lambda: PartitioningConfig(max_chars_per_partition=1300, respect_existing_delimiters=True))
+    voices: Dict[str, Any] = field(default_factory=dict)
+    audio: AudioConfig = field(default_factory=lambda: AudioConfig(format="wav", sample_rate=48000, sample_width_bytes=2, channels=1, output_dir="output", inter_partition_pause_ms=300, naming_pattern="{input_name}_part{part_num:02d}.wav", combine_full=True))
+
+
+def _deep_merge_dicts(base: dict, override: dict) -> dict:
+    result = base.copy()
+    for key, value in override.items():
+        if isinstance(value, dict) and key in result and isinstance(result[key], dict):
+            result[key] = _deep_merge_dicts(result[key], value)
+        else:
+            result[key] = value
+    return result
 
 
 def load_config(config_path: Optional[str] = None) -> AppConfig:
     """Loads application configuration.
 
     Resolution Order:
-    1. If `config_path` is explicitly specified, load that file.
-    2. If omitted, search for 'config.yaml' in current directory or project root.
-    3. If no file is found, fallback to built-in default AppConfig dataclass.
+    1. Load default 'config.yaml' (from current working directory or package root).
+    2. If `config_path` is explicitly specified and exists, load user configuration and merge over default.
+    3. If neither default nor user config is found, raise FileNotFoundError.
     """
+    cwd_config = Path("config.yaml")
+    pkg_root_config = Path(__file__).parent.parent.parent / "config.yaml"
+
+    base_path = None
+    if cwd_config.is_file():
+        base_path = cwd_config
+    elif pkg_root_config.is_file():
+        base_path = pkg_root_config
+
+    base_data = {}
+    if base_path and base_path.is_file():
+        with open(base_path, "r", encoding="utf-8") as f:
+            base_data = yaml.safe_load(f) or {}
+
+    user_data = {}
     if config_path:
         target_path = Path(config_path)
-    else:
-        cwd_config = Path("config.yaml")
-        pkg_root_config = Path(__file__).parent.parent.parent / "config.yaml"
-        if cwd_config.is_file():
-            target_path = cwd_config
-        elif pkg_root_config.is_file():
-            target_path = pkg_root_config
-        else:
-            target_path = cwd_config
+        if target_path.is_file():
+            with open(target_path, "r", encoding="utf-8") as f:
+                user_data = yaml.safe_load(f) or {}
 
-    if not target_path.is_file():
-        # Fallback to built-in default AppConfig if no file exists
-        return AppConfig()
+    if not base_data and not user_data:
+        raise FileNotFoundError("O arquivo de configuração 'config.yaml' não foi encontrado no projeto nem no pacote!")
 
-    with open(target_path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+    data = _deep_merge_dicts(base_data, user_data) if user_data else base_data
 
     gen_data = data.get("generator", {})
     rate_data = data.get("rate_limit", {})
@@ -89,15 +103,19 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     voices_data = data.get("voices", {})
     audio_data = data.get("audio", {})
 
+    model = gen_data.get("model")
+    if not model:
+        raise ValueError("Configuração inválida: o modelo ('generator.model') deve ser informado no config.yaml!")
+
     generator = GeneratorConfig(
         provider=gen_data.get("provider", "google-ai-studio"),
-        model=gen_data.get("model", "gemini-2.5-flash-preview-tts")
+        model=model
     )
     rate_limit = RateLimitConfig(
-        max_requests_per_minute=rate_data.get("max_requests_per_minute", 15),
-        max_requests_per_day=rate_data.get("max_requests_per_day", 10),
-        max_concurrent_requests=rate_data.get("max_concurrent_requests", 2),
-        retry_attempts=rate_data.get("retry_attempts", 3),
+        max_requests_per_minute=int(rate_data.get("max_requests_per_minute", 15)),
+        max_requests_per_day=int(rate_data.get("max_requests_per_day", 10)),
+        max_concurrent_requests=int(rate_data.get("max_concurrent_requests", 2)),
+        retry_attempts=int(rate_data.get("retry_attempts", 3)),
         backoff_factor=float(rate_data.get("backoff_factor", 2.0))
     )
     partitioning = PartitioningConfig(

@@ -59,6 +59,7 @@ partitioning:
   respect_existing_delimiters: true
 
 voices:
+  language_code: "pt-BR"
   scene: "A high-quality recording studio, two friends talking casually into dynamic mics."
   context: "Podcast style. Fast, slightly overlapping pacing. Tone is energetic, conversational, and warm."
   speakers:

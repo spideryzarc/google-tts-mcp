@@ -59,13 +59,31 @@ def detect_script_speakers(text: str, speakers_cfg: dict = None) -> list[str]:
 
 
 class GoogleTTSClient:
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: Optional[AppConfig] = None):
+        if config is None:
+            from google_tts_mcp.config import load_config
+            config = load_config()
+
         self.config = config
         self.api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
         rate_cfg = config.rate_limit
         self.limiter = AsyncLimiter(rate_cfg.max_requests_per_minute, 60)
         self.semaphore = asyncio.Semaphore(rate_cfg.max_concurrent_requests)
+
+    def _resolve_default_voice(self, speakers_cfg: dict = None) -> str:
+        """Resolves default voice dynamically from config.yaml or raises ValueError if not specified."""
+        if isinstance(self.config.voices, dict):
+            def_v = self.config.voices.get("default_voice")
+            if def_v:
+                return def_v
+
+        if isinstance(speakers_cfg, dict) and speakers_cfg:
+            for spk_info in speakers_cfg.values():
+                if isinstance(spk_info, dict) and spk_info.get("voice_name"):
+                    return spk_info["voice_name"]
+
+        raise ValueError("Nenhuma voz foi especificada e nenhuma voz padrão ('default_voice' ou locutor) foi encontrada no config.yaml!")
 
     def _get_genai_client(self):
         if not GENAI_AVAILABLE:
@@ -87,6 +105,7 @@ class GoogleTTSClient:
         genai_client = self._get_genai_client()
         model_name = self.config.generator.model
         speakers_cfg = self.config.voices.get("speakers", {})
+        default_voice = self._resolve_default_voice(speakers_cfg)
 
         detected_speakers = detect_script_speakers(text_chunk, speakers_cfg)
         is_multi_speaker = (
@@ -103,14 +122,14 @@ class GoogleTTSClient:
             for spk_name in detected_speakers:
                 spk_info = speakers_cfg.get(spk_name, {})
                 v_name = spk_info.get("voice_name") if isinstance(spk_info, dict) else None
-                if not v_name and isinstance(speakers_cfg, dict):
-                    v_name = "Kore"
+                if not v_name:
+                    v_name = default_voice
                 speaker_voice_configs.append(
                     types.SpeakerVoiceConfig(
                         speaker=spk_name,
                         voice_config=types.VoiceConfig(
                             prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name=v_name or "Kore"
+                                voice_name=v_name
                             )
                         )
                     )
@@ -127,11 +146,11 @@ class GoogleTTSClient:
                             )
                         )
                     )
-            speech_config = types.SpeechConfig(
-                multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
+            speech_config_kwargs = {
+                "multi_speaker_voice_config": types.MultiSpeakerVoiceConfig(
                     speaker_voice_configs=speaker_voice_configs
                 )
-            )
+            }
         else:
             # Single-speaker setup
             selected_voice = voice_name
@@ -143,20 +162,21 @@ class GoogleTTSClient:
                         selected_voice = spk_info["voice_name"]
 
                 if not selected_voice:
-                    selected_voice = self.config.voices.get("default_voice")
-                    if not selected_voice and isinstance(speakers_cfg, dict) and speakers_cfg:
-                        first_spk = next(iter(speakers_cfg.values()))
-                        if isinstance(first_spk, dict):
-                            selected_voice = first_spk.get("voice_name")
-                    selected_voice = selected_voice or "Kore"
+                    selected_voice = default_voice
 
-            speech_config = types.SpeechConfig(
-                voice_config=types.VoiceConfig(
+            speech_config_kwargs = {
+                "voice_config": types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
                         voice_name=selected_voice
                     )
                 )
-            )
+            }
+
+        language_code = self.config.voices.get("language_code") if isinstance(self.config.voices, dict) else None
+        if language_code:
+            speech_config_kwargs["language_code"] = language_code
+
+        speech_config = types.SpeechConfig(**speech_config_kwargs)
 
         gen_config = types.GenerateContentConfig(
             response_modalities=["AUDIO"],
