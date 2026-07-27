@@ -10,7 +10,7 @@ from mcp.server.fastmcp import FastMCP
 
 from google_tts_mcp.config import load_config
 from google_tts_mcp.partitioner import partition_text
-from google_tts_mcp.api_client import GoogleTTSClient, APIRateLimitError
+from google_tts_mcp.api_client import GoogleTTSClient, APIRateLimitError, parse_api_keys_from_env
 from google_tts_mcp.audio import pcm_to_wav, combine_pcm_chunks, wav_to_pcm
 from google_tts_mcp.utils import get_input_basename, format_output_filename, sanitize_filename
 
@@ -186,7 +186,7 @@ async def partition_tts_file(
     return json.dumps(report, indent=2, ensure_ascii=False)
 
 
-def _validate_config_and_env(config_path: Optional[str] = None, check_api_key: bool = True) -> AppConfig:
+def _validate_config_and_env(config_path: Optional[str] = None, check_api_key: bool = True):
     """Internal helper to validate configuration structure and environment pre-requisites.
 
     Raises:
@@ -196,9 +196,9 @@ def _validate_config_and_env(config_path: Optional[str] = None, check_api_key: b
     """
     config = load_config(config_path)
     if check_api_key:
-        has_api_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+        has_api_key = bool(parse_api_keys_from_env())
         if not has_api_key:
-            raise EnvironmentError("API key not configured. Please set GEMINI_API_KEY or GOOGLE_API_KEY in the environment or .env file.")
+            raise EnvironmentError("API key not configured. Please set GEMINI_API_KEYS, GEMINI_API_KEY, or GOOGLE_API_KEY in the environment or .env file.")
     return config
 
 

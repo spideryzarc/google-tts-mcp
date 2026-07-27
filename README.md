@@ -5,10 +5,10 @@ A Python-based Model Context Protocol (MCP) server designed to automate Text-to-
 ## Key Features
 
 - **Smart Paragraph Partitioning**: Splits the input script into continuous partitions up to a maximum character limit (default 1300), first respecting existing `---` section delimiters. Sections within 1300 characters are kept intact; larger sections are re-partitioned while strictly preserving paragraphs and sentence-ending punctuation (`.`, `!`, `?`, `:`).
-- **Quota Protection & Rate Limiting**: Built on the official `google-genai` SDK using `aiolimiter` and `asyncio.Semaphore` to manage rate limits (15 RPM) and concurrency with exponential backoff retries.
+- **Quota Protection & Multi-Key Load Balancing**: Built on the official `google-genai` SDK with per-key rate limiters (`aiolimiter`) and concurrency semaphores. Supports multiple comma-separated API keys (`GEMINI_API_KEYS` or `GEMINI_API_KEY`) for **Round-Robin load balancing** and **independent per-key auto-failover/cooldown** on 429 errors.
 - **Direct Video Editor Compatibility (48000 Hz, pcm_s16le, Mono)**: Automatic resampling from native 24kHz PCM to 48,000 Hz `pcm_s16le` Mono (1 channel). Ensures 100% audio clock sync in video editing software (DaVinci Resolve, Premiere, CapCut, Kdenlive, Final Cut) without bloated stereo file sizes or manual `ffmpeg` commands.
 - **Real-Time Job Progress & File Logging**: Automatically writes `generation.log` and `progress.json` to the output directory during batch operations. Clients can track live progress via the `check_job_progress` tool.
-- **Secure `config.yaml`**: No API keys are stored in configuration files (safe for git repository sharing). API keys are loaded dynamically from environment variables (`GEMINI_API_KEY` or `GOOGLE_API_KEY` or `.env`).
+- **Secure `config.yaml`**: No API keys are stored in configuration files (safe for git repository sharing). API keys are loaded dynamically from environment variables (`GEMINI_API_KEYS`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` or `.env`).
 - **Automatic Part Merging**: Generates individual partition `.wav` files (e.g., `aula04-script-duo_part01.wav`) and a full concatenated file `aula04-script-duo_complete.wav` with customizable silence pauses (300ms).
 - **Exposed Config Resources**: MCP clients can dynamically fetch `config://schema` and `config://template` to auto-generate or validate custom configurations.
 
@@ -21,6 +21,7 @@ google-tts-mcp/
 ├── pyproject.toml                 # Package configuration and dependencies
 ├── config.yaml                    # Voices, model, rate limit, and audio config
 ├── README.md                      # Documentation
+├── sample.env                     # Environment variables template (single or multi-key)
 ├── samples/
 │   └── aula04-script-duo.tts      # Provided sample script
 ├── src/
@@ -29,13 +30,14 @@ google-tts-mcp/
 │       ├── server.py              # FastMCP server, resources, tools, and logging
 │       ├── config.py              # config.yaml loader
 │       ├── partitioner.py         # Text partition engine (<1300 chars)
-│       ├── api_client.py          # Google GenAI client with rate limiters
+│       ├── api_client.py          # Google GenAI client with key pool & rate limiters
 │       ├── audio.py              # 48kHz pcm_s16le resampling and RIFF WAV writer
 │       └── utils.py              # File naming and formatting utilities
 └── tests/
     ├── test_partitioner.py        # Partitioner tests (paragraphs, sections, sentences)
     ├── test_config.py             # Configuration loader, MCP resources, and progress tests
     ├── test_audio.py              # 48kHz resampling and WAV header tests
+    ├── test_multi_key.py          # Multi-key parsing, KeyPool round-robin, and failover tests
     └── test_samples.py            # Automated tests on all samples/ files
 ```
 
@@ -85,13 +87,21 @@ audio:
 
 ---
 
-## Required Environment Variable
+## Environment Variables & Multi-Key Load Balancing
 
-Set your API key in the environment or in a `.env` file prior to generating speech:
+Set your API key(s) in the environment or in a `.env` file prior to generating speech:
 
+### Single Key:
 ```bash
 export GEMINI_API_KEY="your_google_ai_studio_api_key"
 ```
+
+### Multiple Keys (Round-Robin & Auto-Failover):
+```bash
+export GEMINI_API_KEYS="key_1,key_2,key_3"
+```
+
+Each key gets its own rate limiter (e.g., 15 RPM each). If Key 1 encounters a 429 rate limit or quota error, it is placed on an individual cooldown timer while Key 2 immediately handles the request without stalling.
 
 ---
 
@@ -127,7 +137,7 @@ uv pip install -e .
 
 ### 2. Running Automated Tests
 ```bash
-.venv/bin/python -m pytest -v
+.venv/bin/pytest
 ```
 
 ### 3. Registering the MCP Server
@@ -140,9 +150,10 @@ In your MCP client settings (Gemini / Claude / VSCode MCP settings):
       "command": "/home/einstein/projects/google-tts-mcp/.venv/bin/python",
       "args": ["-m", "google_tts_mcp.server"],
       "env": {
-        "GEMINI_API_KEY": "YOUR_KEY_HERE"
+        "GEMINI_API_KEYS": "KEY_1,KEY_2,KEY_3"
       }
     }
   }
 }
 ```
+

@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 from aiolimiter import AsyncLimiter
 from google_tts_mcp.config import AppConfig
 
+import time
+from typing import Dict, Optional, Any, List
+
 # Load environment variables from .env if present
 load_dotenv()
 
@@ -20,6 +23,27 @@ try:
     GENAI_AVAILABLE = True
 except ImportError:
     GENAI_AVAILABLE = False
+
+
+def parse_api_keys_from_env() -> list[str]:
+    """Parses Gemini/Google API keys from environment variables.
+
+    Checks GEMINI_API_KEYS, GEMINI_API_KEY, and GOOGLE_API_KEY.
+    Supports comma-separated lists of keys. Returns a deduplicated list of non-empty keys.
+    """
+    raw_keys = []
+    for var_name in ("GEMINI_API_KEYS", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        val = os.environ.get(var_name)
+        if val:
+            raw_keys.extend(val.split(","))
+
+    cleaned = []
+    for k in raw_keys:
+        k_clean = k.strip().strip('"').strip("'")
+        if k_clean and k_clean not in cleaned:
+            cleaned.append(k_clean)
+
+    return cleaned
 
 
 def detect_script_speakers(text: str, speakers_cfg: dict = None) -> list[str]:
@@ -65,6 +89,56 @@ class APIRateLimitError(RuntimeError):
         self.is_daily_quota = is_daily_quota
 
 
+class KeyTracker:
+    """Tracks rate limiting and cooldown status for an individual API key."""
+    def __init__(self, key: str, max_requests_per_minute: int):
+        self.key = key
+        self.limiter = AsyncLimiter(max_requests_per_minute, 60)
+        self.cooldown_until: float = 0.0
+        self.is_daily_exhausted: bool = False
+
+    def is_available(self, now: Optional[float] = None) -> bool:
+        if self.is_daily_exhausted:
+            return False
+        if now is None:
+            now = time.monotonic()
+        return now >= self.cooldown_until
+
+
+class KeyPool:
+    """Manages a pool of API keys for round-robin load balancing and failover."""
+    def __init__(self, api_keys: list[str], max_requests_per_minute: int):
+        self.max_rpm = max_requests_per_minute
+        self.trackers = [KeyTracker(k, max_requests_per_minute) for k in api_keys]
+        self._index = 0
+
+    def get_next_available(self) -> Optional[KeyTracker]:
+        now = time.monotonic()
+        n = len(self.trackers)
+        if n == 0:
+            return None
+
+        for _ in range(n):
+            idx = self._index
+            self._index = (self._index + 1) % n
+            tracker = self.trackers[idx]
+            if tracker.is_available(now):
+                return tracker
+        return None
+
+    def get_min_cooldown_wait(self) -> float:
+        now = time.monotonic()
+        waits = [t.cooldown_until - now for t in self.trackers if not t.is_daily_exhausted and t.cooldown_until > now]
+        return min(waits) if waits else 0.0
+
+    def all_daily_exhausted(self) -> bool:
+        return bool(self.trackers) and all(t.is_daily_exhausted for t in self.trackers)
+
+    def active_key_count(self) -> int:
+        now = time.monotonic()
+        return sum(1 for t in self.trackers if t.is_available(now))
+
+
 class GoogleTTSClient:
     def __init__(self, config: Optional[AppConfig] = None):
         if config is None:
@@ -72,11 +146,19 @@ class GoogleTTSClient:
             config = load_config()
 
         self.config = config
-        self.api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        self.api_keys = parse_api_keys_from_env()
 
         rate_cfg = config.rate_limit
-        self.limiter = AsyncLimiter(rate_cfg.max_requests_per_minute, 60)
-        self.semaphore = asyncio.Semaphore(rate_cfg.max_concurrent_requests)
+        num_keys = max(1, len(self.api_keys))
+        self.key_pool = KeyPool(self.api_keys, rate_cfg.max_requests_per_minute)
+        self.limiter = AsyncLimiter(rate_cfg.max_requests_per_minute * num_keys, 60)
+        self.semaphore = asyncio.Semaphore(rate_cfg.max_concurrent_requests * num_keys)
+
+    @property
+    def api_key(self) -> Optional[str]:
+        """Provides backward-compatible access to the primary API key."""
+        keys = parse_api_keys_from_env()
+        return keys[0] if keys else (self.api_keys[0] if self.api_keys else None)
 
     def _resolve_default_voice(self, speakers_cfg: dict = None) -> str:
         """Resolves default voice dynamically from config.yaml or raises ValueError if not specified."""
@@ -92,24 +174,20 @@ class GoogleTTSClient:
 
         raise ValueError("No voice specified and no default voice ('default_voice' or speaker profile) found in config.yaml!")
 
-    def _get_genai_client(self):
+    def _get_genai_client(self, api_key: Optional[str] = None):
         if not GENAI_AVAILABLE:
             raise RuntimeError(
                 "The 'google-genai' package is not installed. Install it via 'pip install google-genai'."
             )
-        if not self.api_key:
-            # Refresh from environment in case it was loaded dynamically
-            self.api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-
-        if not self.api_key:
-            err = "API key not found! Please set the GEMINI_API_KEY or GOOGLE_API_KEY environment variable or place it in .env."
+        target_key = api_key or self.api_key
+        if not target_key:
+            err = "API key not found! Please set GEMINI_API_KEYS, GEMINI_API_KEY, or GOOGLE_API_KEY environment variable or place it in .env."
             logger.error(f"[AUTH ERROR] {err}")
             raise RuntimeError(err)
-        return genai.Client(api_key=self.api_key)
+        return genai.Client(api_key=target_key)
 
     async def generate_speech_pcm(self, text_chunk: str, voice_name: str = None, system_prompt: str = None) -> bytes:
         """Generates raw PCM audio bytes for a text chunk using Gemini TTS API."""
-        genai_client = self._get_genai_client()
         model_name = self.config.generator.model
         speakers_cfg = self.config.voices.get("speakers", {})
         default_voice = self._resolve_default_voice(speakers_cfg)
@@ -240,20 +318,57 @@ class GoogleTTSClient:
         retry_attempts = self.config.rate_limit.retry_attempts
         backoff_factor = self.config.rate_limit.backoff_factor
 
+        # Dynamic refresh of env keys if updated at runtime
+        env_keys = parse_api_keys_from_env()
+        if env_keys and set(env_keys) != set(t.key for t in self.key_pool.trackers):
+            self.api_keys = env_keys
+            self.key_pool = KeyPool(self.api_keys, self.config.rate_limit.max_requests_per_minute)
+
         for attempt in range(1, retry_attempts + 1):
+            if self.key_pool.all_daily_exhausted():
+                raise APIRateLimitError(
+                    f"Cota diária de todas as chaves ({len(self.key_pool.trackers)}) da API foi atingida!",
+                    is_daily_quota=True
+                )
+
+            key_tracker = self.key_pool.get_next_available()
+            if not key_tracker and self.key_pool.trackers:
+                wait_seconds = self.key_pool.get_min_cooldown_wait()
+                if wait_seconds > 0:
+                    logger.warning(f"[KEY POOL COOLDOWN] All API keys in pool are in cooldown. Waiting {wait_seconds:.1f}s...")
+                    await asyncio.sleep(wait_seconds + 0.1)
+                    key_tracker = self.key_pool.get_next_available()
+
+            if key_tracker:
+                genai_client = self._get_genai_client(api_key=key_tracker.key)
+            else:
+                genai_client = self._get_genai_client()
+
             try:
-                async with self.limiter:
-                    async with self.semaphore:
-                        # Execute API call in executor to keep async loop non-blocking
-                        loop = asyncio.get_running_loop()
-                        response = await loop.run_in_executor(
-                            None,
-                            lambda: genai_client.models.generate_content(
-                                model=model_name,
-                                contents=full_contents,
-                                config=gen_config
+                if key_tracker:
+                    async with key_tracker.limiter:
+                        async with self.semaphore:
+                            loop = asyncio.get_running_loop()
+                            response = await loop.run_in_executor(
+                                None,
+                                lambda: genai_client.models.generate_content(
+                                    model=model_name,
+                                    contents=full_contents,
+                                    config=gen_config
+                                )
                             )
-                        )
+                else:
+                    async with self.limiter:
+                        async with self.semaphore:
+                            loop = asyncio.get_running_loop()
+                            response = await loop.run_in_executor(
+                                None,
+                                lambda: genai_client.models.generate_content(
+                                    model=model_name,
+                                    contents=full_contents,
+                                    config=gen_config
+                                )
+                            )
 
                 # Extract audio PCM bytes from response
                 pcm_data = self._extract_pcm_bytes(response)
@@ -270,7 +385,19 @@ class GoogleTTSClient:
                     "free_tier_requests" in err_msg or
                     ("quota" in err_msg and ("exceeded" in err_msg or "429" in err_msg))
                 )
-                if is_daily_quota:
+                if is_daily_quota and key_tracker:
+                    key_tracker.is_daily_exhausted = True
+                    masked_key = key_tracker.key[:6] + "..." if len(key_tracker.key) > 6 else "key"
+                    logger.warning(f"[KEY EXHAUSTED] Key {masked_key} reached daily quota. Marking key as exhausted.")
+                    if not self.key_pool.all_daily_exhausted():
+                        logger.info("Switching to next available API key in pool...")
+                        continue
+                    else:
+                        raise APIRateLimitError(
+                            f"Cota diária de todas as chaves da API foi atingida! Detalhes: {e}",
+                            is_daily_quota=True
+                        ) from e
+                elif is_daily_quota:
                     logger.error(
                         f"[DAILY QUOTA EXCEEDED] Daily limit of {self.config.rate_limit.max_requests_per_day} requests/day reached on Google AI Studio API. Aborting execution immediately."
                     )
@@ -281,14 +408,23 @@ class GoogleTTSClient:
 
                 is_rate_limit = "429" in err_msg or "resource_exhausted" in err_msg or "503" in err_msg
                 if is_rate_limit:
-                    if attempt < retry_attempts:
-                        # Check if Google returned a specific retry delay in the error message
-                        delay_match = re.search(r'retry in (\d+(?:\.\d+)?)s', err_msg) or re.search(r"retrydelay':\s*'(\d+)s'", err_msg)
-                        if delay_match:
-                            sleep_time = float(delay_match.group(1)) + random.uniform(0.5, 1.5)
-                        else:
-                            sleep_time = max(20.0, (backoff_factor ** attempt) * 10.0 + random.uniform(0.5, 1.5))
+                    delay_match = re.search(r'retry in (\d+(?:\.\d+)?)s', err_msg) or re.search(r"retrydelay':\s*'(\d+)s'", err_msg)
+                    if delay_match:
+                        sleep_time = float(delay_match.group(1)) + random.uniform(0.5, 1.5)
+                    else:
+                        sleep_time = max(20.0, (backoff_factor ** attempt) * 10.0 + random.uniform(0.5, 1.5))
 
+                    if key_tracker:
+                        key_tracker.cooldown_until = time.monotonic() + sleep_time
+                        masked_key = key_tracker.key[:6] + "..." if len(key_tracker.key) > 6 else "key"
+                        logger.warning(f"[KEY RATE LIMIT 429/503] Key {masked_key} hit rate limit. Placed on cooldown for {sleep_time:.1f}s.")
+
+                        next_key = self.key_pool.get_next_available()
+                        if next_key:
+                            logger.info("Failing over to next active API key in pool immediately...")
+                            continue
+
+                    if attempt < retry_attempts:
                         logger.warning(
                             f"[RATE LIMIT 429/503] API rate limit hit. Intentional delay: backing off for {sleep_time:.1f}s before retry (Attempt {attempt}/{retry_attempts})..."
                         )
@@ -298,7 +434,7 @@ class GoogleTTSClient:
                             f"[RATE LIMIT EXHAUSTED] Rate limit hit and retries exhausted (Attempt {attempt}/{retry_attempts}): {e}"
                         )
                         raise APIRateLimitError(
-                            f"Limite de requisições da API atigindo após {retry_attempts} tentativas. Detalhes: {e}",
+                            f"Limite de requisições da API atingido após {retry_attempts} tentativas. Detalhes: {e}",
                             is_daily_quota=False
                         ) from e
                 else:
@@ -308,6 +444,7 @@ class GoogleTTSClient:
                     raise RuntimeError(f"Failed to generate speech with Google AI Studio API (Attempt {attempt}/{retry_attempts}): {e}") from e
 
         raise RuntimeError("Attempts exhausted while calling Google AI Studio API.")
+
 
     def _extract_pcm_bytes(self, response) -> bytes:
         """Extracts PCM bytes from response parts."""
