@@ -39,7 +39,7 @@ async def test_server_dry_run_on_samples():
     assert len(sample_files) > 0, "No sample files found in samples/"
 
     for sample_path in sample_files:
-        result_json = await partition_tts_file(str(sample_path), max_chars_per_partition=1300)
+        result_json = await partition_tts_file(str(sample_path))
         data = json.loads(result_json)
 
         assert "error" not in data, f"Partition error on {sample_path.name}: {data.get('error')}"
@@ -61,35 +61,22 @@ async def test_dry_run_tts_generation_all_samples(sample_path: Path):
     result_json = await generate_tts_from_file(
         file_path=str(sample_path),
         output_dir=str(sample_out_dir),
-        max_chars_per_partition=1300,
-        combine_parts=True,
-        dry_run=True,
-        cleanup_on_success=False
+        dry_run=True
     )
 
     data = json.loads(result_json)
     assert data["status"] == "SUCCESS", f"Dry-run generation failed for {sample_path.name}: {data}"
     assert data["total_partitions"] > 0
-
-    # Verify generated partition WAV files
-    for part in data["partition_files"]:
-        wav_path = Path(part["filepath"])
-        assert wav_path.exists(), f"WAV file not created: {wav_path}"
-        assert wav_path.stat().st_size > 0, f"WAV file is empty: {wav_path}"
-
-        with wave.open(str(wav_path), "rb") as wf:
-            assert wf.getframerate() == 48000
-            assert wf.getnchannels() == 1
-            assert wf.getsampwidth() == 2
+    assert data["cleaned_up"] is True
 
     # Verify complete concatenated WAV file
-    if data.get("complete_file"):
-        complete_path = Path(data["complete_file"]["filepath"])
-        assert complete_path.exists()
-        assert complete_path.stat().st_size > 0
-        with wave.open(str(complete_path), "rb") as wf:
-            assert wf.getframerate() == 48000
-            assert wf.getnchannels() == 1
+    assert data.get("complete_file") is not None
+    complete_path = Path(data["complete_file"]["filepath"])
+    assert complete_path.exists()
+    assert complete_path.stat().st_size > 0
+    with wave.open(str(complete_path), "rb") as wf:
+        assert wf.getframerate() == 48000
+        assert wf.getnchannels() == 1
 
 
 @pytest.mark.skipif(
@@ -107,31 +94,18 @@ async def test_live_api_tts_generation_all_samples(sample_path: Path):
 
     result_json = await generate_tts_from_file(
         file_path=str(sample_path),
-        output_dir=str(sample_out_dir),
-        max_chars_per_partition=1300,
-        combine_parts=True
+        output_dir=str(sample_out_dir)
     )
 
     data = json.loads(result_json)
     assert data["status"] == "SUCCESS", f"Generation failed for {sample_path.name}: {data}"
     assert data["total_partitions"] > 0
 
-    # Verify generated partition WAV files
-    for part in data["partition_files"]:
-        wav_path = Path(part["filepath"])
-        assert wav_path.exists(), f"WAV file not created: {wav_path}"
-        assert wav_path.stat().st_size > 0, f"WAV file is empty: {wav_path}"
-
-        with wave.open(str(wav_path), "rb") as wf:
-            assert wf.getframerate() == 48000
-            assert wf.getnchannels() == 1
-            assert wf.getsampwidth() == 2
-
     # Verify complete concatenated WAV file
-    if data.get("complete_file"):
-        complete_path = Path(data["complete_file"]["filepath"])
-        assert complete_path.exists()
-        assert complete_path.stat().st_size > 0
-        with wave.open(str(complete_path), "rb") as wf:
-            assert wf.getframerate() == 48000
-            assert wf.getnchannels() == 1
+    assert data.get("complete_file") is not None
+    complete_path = Path(data["complete_file"]["filepath"])
+    assert complete_path.exists()
+    assert complete_path.stat().st_size > 0
+    with wave.open(str(complete_path), "rb") as wf:
+        assert wf.getframerate() == 48000
+        assert wf.getnchannels() == 1

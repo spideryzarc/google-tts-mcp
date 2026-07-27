@@ -33,39 +33,44 @@ async def test_generate_tts_from_file_resume(tmp_path):
     sample_file = tmp_path / "test_script.tts"
     sample_file.write_text(
         "Narrator: Esta é a primeira partição para testes.\n"
-        "[Pause 2s]\n"
+        "\n---\n"
         "Narrator: Esta é a segunda partição para testes.\n",
         encoding="utf-8"
     )
     
     out_dir = tmp_path / "output"
     
-    # First run (dry_run)
-    res1_str = await generate_tts_from_file(
-        file_path=str(sample_file),
-        output_dir=str(out_dir),
-        max_chars_per_partition=40,
-        dry_run=True,
-        resume=True,
-        cleanup_on_success=False
-    )
+    # Interrupted run to leave progress and partition 1 on disk
+    call_count = 0
+    async def mock_generate_speech_pcm(text):
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            raise APIRateLimitError("Limite de cota simulado para interrupção", is_daily_quota=False)
+        return b"\x00\x00" * 24000
+
+    with patch("google_tts_mcp.server.GoogleTTSClient.generate_speech_pcm", side_effect=mock_generate_speech_pcm):
+        res1_str = await generate_tts_from_file(
+            file_path=str(sample_file),
+            output_dir=str(out_dir),
+            dry_run=False,
+            resume=True
+        )
     res1 = json.loads(res1_str)
-    assert res1["status"] == "SUCCESS"
-    assert len(res1["partition_files"]) > 0
+    assert res1["status"] == "INTERRUPTED"
+    assert res1["completed_partitions"] == 1
     assert all(f["resumed"] is False for f in res1["partition_files"])
 
-    # Second run with resume=True: should skip existing files
+    # Second run with resume=True: should resume chunk 1 and finish chunk 2
     res2_str = await generate_tts_from_file(
         file_path=str(sample_file),
         output_dir=str(out_dir),
-        max_chars_per_partition=40,
         dry_run=True,
-        resume=True,
-        cleanup_on_success=False
+        resume=True
     )
     res2 = json.loads(res2_str)
     assert res2["status"] == "SUCCESS"
-    assert all(f["resumed"] is True for f in res2["partition_files"])
+    assert res2["partition_files"][0]["resumed"] is True
 
 
 @pytest.mark.asyncio
@@ -73,7 +78,7 @@ async def test_generate_tts_from_file_rate_limit_interruption(tmp_path):
     sample_file = tmp_path / "test_script.tts"
     sample_file.write_text(
         "Narrator: Partição 1 do teste de rate limit.\n"
-        "[Pause 2s]\n"
+        "\n---\n"
         "Narrator: Partição 2 do teste de rate limit.\n",
         encoding="utf-8"
     )
@@ -93,7 +98,6 @@ async def test_generate_tts_from_file_rate_limit_interruption(tmp_path):
         res_str = await generate_tts_from_file(
             file_path=str(sample_file),
             output_dir=str(out_dir),
-            max_chars_per_partition=40,
             dry_run=False,
             resume=True
         )

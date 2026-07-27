@@ -90,14 +90,9 @@ audio:
   sample_width_bytes: 2
   # Number of audio channels (1 = Mono)
   channels: 1
-  # Output directory path where WAV audio files will be saved
-  output_dir: "output"
   # Pause duration (in milliseconds) inserted between concatenated partition chunks
   inter_partition_pause_ms: 300
   # Filename pattern for individual partition files
   naming_pattern: "{input_name}_part{part_num:02d}.wav"
-  # If true, concatenates all partition files into a single complete audio file ({input_name}_complete.wav)
-  combine_full: true
-  # If true, automatically cleans up generation logs, progress.json, and partial partition WAV files upon successful task completion
-  cleanup_on_success: true
+
 

@@ -74,3 +74,19 @@ async def test_daily_quota_fast_fail(monkeypatch):
     with pytest.raises(RuntimeError) as exc_info:
         await client.generate_speech_pcm("test text")
     assert "Quota exceeded" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_transparent_api_key_validation(monkeypatch, tmp_path):
+    from google_tts_mcp.server import generate_tts_from_file
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+    sample_file = tmp_path / "test.tts"
+    sample_file.write_text("Narrator: Teste de chave ausente.\n", encoding="utf-8")
+
+    res_str = await generate_tts_from_file(file_path=str(sample_file), dry_run=False)
+    res = json.loads(res_str)
+    assert "error" in res
+    assert "Chave de API não configurada" in res["error"]
+

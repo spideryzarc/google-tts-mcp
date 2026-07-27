@@ -105,20 +105,14 @@ export GEMINI_API_KEY="your_google_ai_studio_api_key"
 ### Exposed MCP Tools
 
 1. **`generate_tts_from_file`**:
-   - `file_path`: Path to the `.tts` script file.
+   - `file_path`: (Required) Path to the `.tts` script file.
+   - `output_dir`: (Optional) Output directory path for generated `.wav` files (defaults to `'output'`).
+   - `dry_run`: (Optional) If `True`, simulates speech generation with synthetic audio without calling Google APIs.
+   - `resume`: (Optional) If `True`, skips already generated valid partition files from a previous run.
    - `config_path`: (Optional) Path to a custom `config.yaml`.
-   - `output_dir`: (Optional) Output directory path for `.wav` files.
-   - `max_chars_per_partition`: Character limit per partition (default 1300).
-   - `combine_parts`: If `True`, also generates `{input_name}_complete.wav`.
 
 2. **`check_job_progress`**:
    - `output_dir`: (Optional) Target output directory path (defaults to `'output'`). Reads real-time `progress.json` and recent lines of `generation.log`.
-
-3. **`partition_tts_file`**:
-   - Inspection/dry-run tool. Displays the partition count, character breakdown, and preview without making API calls.
-
-4. **`validate_config`**:
-   - Validates `config.yaml` syntax and verifies environment API key status.
 
 ---
 

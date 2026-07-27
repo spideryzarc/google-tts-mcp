@@ -54,7 +54,7 @@ def _cleanup_file_logging(output_dir: Path):
                 pass
 
 
-def _cleanup_job_artifacts(output_dir: Path, generated_files: list, combine_parts: bool) -> Dict[str, Any]:
+def _cleanup_job_artifacts(output_dir: Path, generated_files: list) -> Dict[str, Any]:
     """Cleans up generation log, progress.json, and partial .wav files upon task success."""
     cleaned_items = []
 
@@ -79,18 +79,17 @@ def _cleanup_job_artifacts(output_dir: Path, generated_files: list, combine_part
         except Exception as e:
             logger.warning(f"Could not remove progress file '{progress_file.name}': {e}")
 
-    # 4. Delete partial partition .wav files if combined audio was successfully created
-    if combine_parts:
-        for file_info in generated_files:
-            filepath = file_info.get("filepath")
-            if filepath:
-                part_file = Path(filepath)
-                if part_file.is_file():
-                    try:
-                        part_file.unlink()
-                        cleaned_items.append(part_file.name)
-                    except Exception as e:
-                        logger.warning(f"Could not remove partition file '{part_file.name}': {e}")
+    # 4. Delete partial partition .wav files after combined audio is created
+    for file_info in generated_files:
+        filepath = file_info.get("filepath")
+        if filepath:
+            part_file = Path(filepath)
+            if part_file.is_file():
+                try:
+                    part_file.unlink()
+                    cleaned_items.append(part_file.name)
+                except Exception as e:
+                    logger.warning(f"Could not remove partition file '{part_file.name}': {e}")
 
     return {
         "cleaned_up": True,
@@ -115,13 +114,13 @@ def get_config_template() -> str:
 
 
 @mcp.tool()
-async def check_job_progress(output_dir: Optional[str] = "output") -> str:
+async def check_job_progress(output_dir: str = "output") -> str:
     """Checks the real-time progress status of an active or completed TTS audio generation job.
 
     Args:
         output_dir: Output directory where the job is generating files (defaults to 'output').
     """
-    out_path = Path(output_dir or "output")
+    out_path = Path(output_dir)
     progress_file = out_path / "progress.json"
     log_file = out_path / "generation.log"
 
@@ -141,30 +140,29 @@ async def check_job_progress(output_dir: Optional[str] = "output") -> str:
         return json.dumps({"error": f"Failed to read progress log: {e}"}, ensure_ascii=False)
 
 
-@mcp.tool()
 async def partition_tts_file(
     file_path: str,
-    max_chars_per_partition: int = 1300,
     config_path: Optional[str] = None
 ) -> str:
     """Inspects and dry-run partitions a .tts script file without making API calls.
 
     Args:
         file_path: Path to the .tts script file.
-        max_chars_per_partition: Maximum allowed characters per chunk (default 1300).
         config_path: Optional custom config.yaml file path.
     """
     path = Path(file_path)
-    if not path.is_file():
-        return json.dumps({"error": f"File not found: {file_path}"}, ensure_ascii=False)
+    try:
+        config = _validate_config_and_env(config_path, check_api_key=False)
+    except Exception as err:
+        return json.dumps({"error": f"Configuration validation failed: {err}"}, ensure_ascii=False)
 
-    config = load_config(config_path)
     text = path.read_text(encoding="utf-8")
 
+    max_chars = config.partitioning.max_chars_per_partition
     respect_delimiters = config.partitioning.respect_existing_delimiters
     chunks = partition_text(
         text=text,
-        max_chars=max_chars_per_partition,
+        max_chars=max_chars,
         respect_existing_delimiters=respect_delimiters
     )
 
@@ -173,7 +171,7 @@ async def partition_tts_file(
         "input_name": path.stem,
         "total_characters": len(text),
         "total_partitions": len(chunks),
-        "max_chars_per_partition": max_chars_per_partition,
+        "max_chars_per_partition": max_chars,
         "partitions": [
             {
                 "part_num": chunk.part_num,
@@ -188,87 +186,57 @@ async def partition_tts_file(
     return json.dumps(report, indent=2, ensure_ascii=False)
 
 
-@mcp.tool()
-async def validate_config(config_path: Optional[str] = None) -> str:
-    """Validates the config.yaml structure and reports environment status.
+def _validate_config_and_env(config_path: Optional[str] = None, check_api_key: bool = True) -> AppConfig:
+    """Internal helper to validate configuration structure and environment pre-requisites.
 
-    Args:
-        config_path: Path to config.yaml (defaults to ./config.yaml if omitted).
+    Raises:
+        FileNotFoundError: If configuration file is missing.
+        ValueError: If config structure is invalid.
+        EnvironmentError: If required API key environment variables are missing when live API execution is required.
     """
-    try:
-        config = load_config(config_path)
+    config = load_config(config_path)
+    if check_api_key:
         has_api_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
-
-        status = {
-            "status": "VALID",
-            "config_path": config_path or "config.yaml (default)",
-            "environment": {
-                "api_key_detected": has_api_key,
-                "api_key_variable": "GEMINI_API_KEY / GOOGLE_API_KEY"
-            },
-            "generator": {
-                "provider": config.generator.provider,
-                "model": config.generator.model
-            },
-            "rate_limit": {
-                "max_requests_per_minute": config.rate_limit.max_requests_per_minute,
-                "max_concurrent_requests": config.rate_limit.max_concurrent_requests
-            },
-            "partitioning": {
-                "max_chars_per_partition": config.partitioning.max_chars_per_partition,
-                "respect_existing_delimiters": config.partitioning.respect_existing_delimiters
-            },
-            "audio": {
-                "format": config.audio.format,
-                "sample_rate": config.audio.sample_rate,
-                "channels": config.audio.channels,
-                "output_dir": config.audio.output_dir,
-                "cleanup_on_success": config.audio.cleanup_on_success
-            }
-        }
-        return json.dumps(status, indent=2, ensure_ascii=False)
-
-    except Exception as e:
-        return json.dumps({"status": "INVALID", "error": str(e)}, ensure_ascii=False)
+        if not has_api_key:
+            raise EnvironmentError("Chave de API não configurada. Defina GEMINI_API_KEY ou GOOGLE_API_KEY no ambiente ou .env.")
+    return config
 
 
 @mcp.tool()
 async def generate_tts_from_file(
     file_path: str,
-    config_path: Optional[str] = None,
-    output_dir: Optional[str] = None,
-    max_chars_per_partition: int = 1300,
-    combine_parts: bool = True,
-    resume: bool = True,
+    output_dir: str = "output",
     dry_run: bool = False,
-    cleanup_on_success: Optional[bool] = None
+    resume: bool = True,
+    config_path: Optional[str] = None
 ) -> str:
-    """Generates 48kHz WAV audio files from a .tts script using Google AI Studio API (or dry-run simulation).
+    """Generates WAV audio files from a .tts script using Google AI Studio API (or dry-run simulation).
 
     Args:
         file_path: Path to the .tts script file (e.g. samples/aula04-script-duo.tts).
-        config_path: Path to config.yaml.
-        output_dir: Output directory path (defaults to config.yaml setting or ./output).
-        max_chars_per_partition: Character limit per partition (default 1300).
-        combine_parts: If True, also generates the full merged {input_name}_complete.wav file.
-        resume: If True, skips already generated valid partition files from a previous run.
+        output_dir: Output directory path where audio files will be generated (default 'output').
         dry_run: If True, simulates speech generation with synthetic PCM audio without invoking the Google API.
-        cleanup_on_success: If True, deletes logs, progress.json, and partial .wav partition files after successful completion (defaults to config setting).
+        resume: If True, skips already generated valid partition files from a previous run.
+        config_path: Optional path to custom config.yaml.
     """
     path = Path(file_path)
     if not path.is_file():
         return json.dumps({"error": f"Input file not found: {file_path}"}, ensure_ascii=False)
 
-    config = load_config(config_path)
+    try:
+        config = _validate_config_and_env(config_path, check_api_key=not dry_run)
+    except Exception as err:
+        return json.dumps({"error": f"Configuration/Environment validation failed: {err}"}, ensure_ascii=False)
+
     text = path.read_text(encoding="utf-8")
     script_hash = hashlib.md5(text.encode("utf-8")).hexdigest()
 
-    out_directory = Path(output_dir or config.audio.output_dir)
+    out_directory = Path(output_dir)
     _setup_file_logging(out_directory)
 
     chunks = partition_text(
         text=text,
-        max_chars=max_chars_per_partition,
+        max_chars=config.partitioning.max_chars_per_partition,
         respect_existing_delimiters=config.partitioning.respect_existing_delimiters
     )
 
@@ -438,7 +406,7 @@ async def generate_tts_from_file(
             }, indent=2, ensure_ascii=False)
 
     complete_file_info = None
-    if combine_parts and len(pcm_chunks) > 0:
+    if len(pcm_chunks) > 0:
         logger.info(f"Combining {len(pcm_chunks)} audio partitions into complete WAV file...")
         combined_wav_bytes = combine_pcm_chunks(
             pcm_chunks=pcm_chunks,
@@ -468,15 +436,10 @@ async def generate_tts_from_file(
     progress_info["complete_file"] = complete_file_info
     _write_progress_json(out_directory, progress_info)
 
-    should_cleanup = cleanup_on_success if cleanup_on_success is not None else config.audio.cleanup_on_success
-
-    cleanup_info = None
-    if should_cleanup:
-        cleanup_info = _cleanup_job_artifacts(
-            output_dir=out_directory,
-            generated_files=generated_files,
-            combine_parts=combine_parts
-        )
+    cleanup_info = _cleanup_job_artifacts(
+        output_dir=out_directory,
+        generated_files=generated_files
+    )
 
     result = {
         "status": "SUCCESS",
@@ -484,11 +447,11 @@ async def generate_tts_from_file(
         "output_directory": str(out_directory.resolve()),
         "total_partitions": total_chunks,
         "elapsed_seconds": total_elapsed,
-        "log_file": str((out_directory / "generation.log").resolve()) if not should_cleanup else None,
-        "progress_file": str((out_directory / "progress.json").resolve()) if not should_cleanup else None,
+        "log_file": None,
+        "progress_file": None,
         "partition_files": generated_files,
         "complete_file": complete_file_info,
-        "cleaned_up": should_cleanup,
+        "cleaned_up": True,
         "cleanup_details": cleanup_info
     }
 
