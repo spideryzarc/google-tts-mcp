@@ -198,7 +198,7 @@ def _validate_config_and_env(config_path: Optional[str] = None, check_api_key: b
     if check_api_key:
         has_api_key = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
         if not has_api_key:
-            raise EnvironmentError("Chave de API não configurada. Defina GEMINI_API_KEY ou GOOGLE_API_KEY no ambiente ou .env.")
+            raise EnvironmentError("API key not configured. Please set GEMINI_API_KEY or GOOGLE_API_KEY in the environment or .env file.")
     return config
 
 

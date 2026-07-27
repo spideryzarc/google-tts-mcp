@@ -5,10 +5,23 @@ from google_tts_mcp.server import get_config_template, check_job_progress
 
 
 def test_load_default_config():
-    config = load_config("non_existent_config.yaml")
+    config = load_config()
     assert config.generator.provider == "google-ai-studio"
     assert config.audio.sample_rate == 48000
     assert config.partitioning.max_chars_per_partition == 1300
+
+
+def test_load_non_existent_config_fails():
+    with pytest.raises(FileNotFoundError):
+        load_config("non_existent_config.yaml")
+
+
+def test_missing_required_key_raises_error():
+    from google_tts_mcp.config import _get_required
+    incomplete_data = {"generator": {"provider": "google-ai-studio"}}
+    with pytest.raises(ValueError) as exc_info:
+        _get_required(incomplete_data, "generator", "model")
+    assert "is required" in str(exc_info.value)
 
 
 def test_load_existing_config():
@@ -88,5 +101,5 @@ async def test_transparent_api_key_validation(monkeypatch, tmp_path):
     res_str = await generate_tts_from_file(file_path=str(sample_file), dry_run=False)
     res = json.loads(res_str)
     assert "error" in res
-    assert "Chave de API não configurada" in res["error"]
+    assert "API key not configured" in res["error"]
 

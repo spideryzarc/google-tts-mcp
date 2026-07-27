@@ -90,7 +90,7 @@ class GoogleTTSClient:
                 if isinstance(spk_info, dict) and spk_info.get("voice_name"):
                     return spk_info["voice_name"]
 
-        raise ValueError("Nenhuma voz foi especificada e nenhuma voz padrão ('default_voice' ou locutor) foi encontrada no config.yaml!")
+        raise ValueError("No voice specified and no default voice ('default_voice' or speaker profile) found in config.yaml!")
 
     def _get_genai_client(self):
         if not GENAI_AVAILABLE:

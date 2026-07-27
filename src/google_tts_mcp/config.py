@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Any
 import yaml
@@ -7,48 +7,48 @@ import yaml
 
 @dataclass
 class GeneratorConfig:
-    provider: str = "google-ai-studio"
-    model: str = "gemini-2.5-flash-preview-tts"
+    provider: str
+    model: str
 
 
 @dataclass
 class RateLimitConfig:
-    max_requests_per_minute: int = 15
-    max_requests_per_day: int = 10
-    max_concurrent_requests: int = 2
-    retry_attempts: int = 3
-    backoff_factor: float = 2.0
+    max_requests_per_minute: int
+    max_requests_per_day: int
+    max_concurrent_requests: int
+    retry_attempts: int
+    backoff_factor: float
 
 
 @dataclass
 class PartitioningConfig:
-    max_chars_per_partition: int = 1300
-    respect_existing_delimiters: bool = True
+    max_chars_per_partition: int
+    respect_existing_delimiters: bool
 
 
 @dataclass
 class VoiceSpec:
-    voice_name: str = "Puck"
-    prompt_prefix: str = ""
+    voice_name: str
+    prompt_prefix: str
 
 
 @dataclass
 class AudioConfig:
-    format: str = "wav"
-    sample_rate: int = 48000
-    sample_width_bytes: int = 2
-    channels: int = 1
-    inter_partition_pause_ms: int = 300
-    naming_pattern: str = "{input_name}_part{part_num:02d}.wav"
+    format: str
+    sample_rate: int
+    sample_width_bytes: int
+    channels: int
+    inter_partition_pause_ms: int
+    naming_pattern: str
 
 
 @dataclass
 class AppConfig:
-    generator: GeneratorConfig = field(default_factory=lambda: GeneratorConfig(provider="google-ai-studio", model="gemini-2.5-flash-preview-tts"))
-    rate_limit: RateLimitConfig = field(default_factory=lambda: RateLimitConfig(max_requests_per_minute=15, max_requests_per_day=10, max_concurrent_requests=2, retry_attempts=3, backoff_factor=2.0))
-    partitioning: PartitioningConfig = field(default_factory=lambda: PartitioningConfig(max_chars_per_partition=1300, respect_existing_delimiters=True))
-    voices: Dict[str, Any] = field(default_factory=dict)
-    audio: AudioConfig = field(default_factory=lambda: AudioConfig(format="wav", sample_rate=48000, sample_width_bytes=2, channels=1, inter_partition_pause_ms=300, naming_pattern="{input_name}_part{part_num:02d}.wav"))
+    generator: GeneratorConfig
+    rate_limit: RateLimitConfig
+    partitioning: PartitioningConfig
+    voices: Dict[str, Any]
+    audio: AudioConfig
 
 
 def _deep_merge_dicts(base: dict, override: dict) -> dict:
@@ -61,13 +61,19 @@ def _deep_merge_dicts(base: dict, override: dict) -> dict:
     return result
 
 
+def _get_required(data: dict, section: str, key: str) -> Any:
+    sec = data.get(section)
+    if not isinstance(sec, dict) or key not in sec:
+        raise ValueError(f"Invalid configuration: field '{section}.{key}' is required in config.yaml!")
+    return sec[key]
+
+
 def load_config(config_path: Optional[str] = None) -> AppConfig:
-    """Loads application configuration.
+    """Loads application configuration strictly from config.yaml without hardcoded Python fallbacks.
 
     Resolution Order:
-    1. Load default 'config.yaml' (from current working directory or package root).
-    2. If `config_path` is explicitly specified and exists, load user configuration and merge over default.
-    3. If neither default nor user config is found, raise FileNotFoundError.
+    1. Load default 'config.yaml' (from current working directory or package root). If missing, raise FileNotFoundError.
+    2. If `config_path` is explicitly specified, verify existence (raise FileNotFoundError if missing) and merge over base config.
     """
     cwd_config = Path("config.yaml")
     pkg_root_config = Path(__file__).parent.parent.parent / "config.yaml"
@@ -78,65 +84,57 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     elif pkg_root_config.is_file():
         base_path = pkg_root_config
 
-    base_data = {}
-    if base_path and base_path.is_file():
-        with open(base_path, "r", encoding="utf-8") as f:
-            base_data = yaml.safe_load(f) or {}
+    if not base_path:
+        raise FileNotFoundError("Required configuration file 'config.yaml' was not found in project or package root!")
+
+    with open(base_path, "r", encoding="utf-8") as f:
+        base_data = yaml.safe_load(f) or {}
 
     user_data = {}
     if config_path:
         target_path = Path(config_path)
-        if target_path.is_file():
-            with open(target_path, "r", encoding="utf-8") as f:
-                user_data = yaml.safe_load(f) or {}
-
-    if not base_data and not user_data:
-        raise FileNotFoundError("O arquivo de configuração 'config.yaml' não foi encontrado no projeto nem no pacote!")
+        if not target_path.is_file():
+            raise FileNotFoundError(f"Specified configuration file '{config_path}' was not found!")
+        with open(target_path, "r", encoding="utf-8") as f:
+            user_data = yaml.safe_load(f) or {}
 
     data = _deep_merge_dicts(base_data, user_data) if user_data else base_data
 
-    gen_data = data.get("generator", {})
-    rate_data = data.get("rate_limit", {})
-    part_data = data.get("partitioning", {})
-    voices_data = data.get("voices", {})
-    audio_data = data.get("audio", {})
-
-    model = gen_data.get("model")
-    if not model:
-        raise ValueError("Configuração inválida: o modelo ('generator.model') deve ser informado no config.yaml!")
-
     generator = GeneratorConfig(
-        provider=gen_data.get("provider", "google-ai-studio"),
-        model=model
+        provider=str(_get_required(data, "generator", "provider")),
+        model=str(_get_required(data, "generator", "model"))
     )
     rate_limit = RateLimitConfig(
-        max_requests_per_minute=int(rate_data.get("max_requests_per_minute", 15)),
-        max_requests_per_day=int(rate_data.get("max_requests_per_day", 10)),
-        max_concurrent_requests=int(rate_data.get("max_concurrent_requests", 2)),
-        retry_attempts=int(rate_data.get("retry_attempts", 3)),
-        backoff_factor=float(rate_data.get("backoff_factor", 2.0))
+        max_requests_per_minute=int(_get_required(data, "rate_limit", "max_requests_per_minute")),
+        max_requests_per_day=int(_get_required(data, "rate_limit", "max_requests_per_day")),
+        max_concurrent_requests=int(_get_required(data, "rate_limit", "max_concurrent_requests")),
+        retry_attempts=int(_get_required(data, "rate_limit", "retry_attempts")),
+        backoff_factor=float(_get_required(data, "rate_limit", "backoff_factor"))
     )
     partitioning = PartitioningConfig(
-        max_chars_per_partition=int(part_data.get("max_chars_per_partition", 1300)),
-        respect_existing_delimiters=bool(part_data.get("respect_existing_delimiters", True))
+        max_chars_per_partition=int(_get_required(data, "partitioning", "max_chars_per_partition")),
+        respect_existing_delimiters=bool(_get_required(data, "partitioning", "respect_existing_delimiters"))
     )
     audio = AudioConfig(
-        format=audio_data.get("format", "wav"),
-        sample_rate=int(audio_data.get("sample_rate", 48000)),
-        sample_width_bytes=int(audio_data.get("sample_width_bytes", 2)),
-        channels=int(audio_data.get("channels", 1)),
-        inter_partition_pause_ms=int(audio_data.get("inter_partition_pause_ms", 300)),
-        naming_pattern=audio_data.get("naming_pattern", "{input_name}_part{part_num:02d}.wav")
+        format=str(_get_required(data, "audio", "format")),
+        sample_rate=int(_get_required(data, "audio", "sample_rate")),
+        sample_width_bytes=int(_get_required(data, "audio", "sample_width_bytes")),
+        channels=int(_get_required(data, "audio", "channels")),
+        inter_partition_pause_ms=int(_get_required(data, "audio", "inter_partition_pause_ms")),
+        naming_pattern=str(_get_required(data, "audio", "naming_pattern"))
     )
 
-    voices_dict = voices_data if isinstance(voices_data, dict) else {}
-    if voices_dict:
-        speakers = voices_dict.get("speakers", {})
-        if isinstance(speakers, dict) and speakers:
-            first_speaker = next(iter(speakers.values()))
-            if isinstance(first_speaker, dict) and "voice_name" in first_speaker:
-                if not voices_dict.get("default_voice"):
-                    voices_dict["default_voice"] = first_speaker["voice_name"]
+    voices_data = data.get("voices")
+    if not isinstance(voices_data, dict):
+        raise ValueError("Invalid configuration: 'voices' section is required in config.yaml!")
+
+    voices_dict = voices_data.copy()
+    speakers = voices_dict.get("speakers", {})
+    if isinstance(speakers, dict) and speakers:
+        first_speaker = next(iter(speakers.values()))
+        if isinstance(first_speaker, dict) and "voice_name" in first_speaker:
+            if not voices_dict.get("default_voice"):
+                voices_dict["default_voice"] = first_speaker["voice_name"]
 
     return AppConfig(
         generator=generator,
