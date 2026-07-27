@@ -46,7 +46,8 @@ async def test_generate_tts_from_file_resume(tmp_path):
         output_dir=str(out_dir),
         max_chars_per_partition=40,
         dry_run=True,
-        resume=True
+        resume=True,
+        cleanup_on_success=False
     )
     res1 = json.loads(res1_str)
     assert res1["status"] == "SUCCESS"
@@ -59,7 +60,8 @@ async def test_generate_tts_from_file_resume(tmp_path):
         output_dir=str(out_dir),
         max_chars_per_partition=40,
         dry_run=True,
-        resume=True
+        resume=True,
+        cleanup_on_success=False
     )
     res2 = json.loads(res2_str)
     assert res2["status"] == "SUCCESS"

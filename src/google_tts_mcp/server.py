@@ -41,6 +41,64 @@ def _write_progress_json(output_dir: Path, progress_data: Dict[str, Any]):
     progress_file.write_text(json.dumps(progress_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def _cleanup_file_logging(output_dir: Path):
+    """Closes and removes file logger handlers writing to generation.log in output_dir."""
+    target_log = (output_dir / "generation.log").resolve()
+    for handler in list(logger.handlers):
+        if isinstance(handler, logging.FileHandler):
+            try:
+                if Path(handler.baseFilename).resolve() == target_log:
+                    logger.removeHandler(handler)
+                    handler.close()
+            except Exception:
+                pass
+
+
+def _cleanup_job_artifacts(output_dir: Path, generated_files: list, combine_parts: bool) -> Dict[str, Any]:
+    """Cleans up generation log, progress.json, and partial .wav files upon task success."""
+    cleaned_items = []
+
+    # 1. Detach file logger handler so file locks are released
+    _cleanup_file_logging(output_dir)
+
+    # 2. Delete generation.log
+    log_file = output_dir / "generation.log"
+    if log_file.is_file():
+        try:
+            log_file.unlink()
+            cleaned_items.append(log_file.name)
+        except Exception as e:
+            logger.warning(f"Could not remove log file '{log_file.name}': {e}")
+
+    # 3. Delete progress.json
+    progress_file = output_dir / "progress.json"
+    if progress_file.is_file():
+        try:
+            progress_file.unlink()
+            cleaned_items.append(progress_file.name)
+        except Exception as e:
+            logger.warning(f"Could not remove progress file '{progress_file.name}': {e}")
+
+    # 4. Delete partial partition .wav files if combined audio was successfully created
+    if combine_parts:
+        for file_info in generated_files:
+            filepath = file_info.get("filepath")
+            if filepath:
+                part_file = Path(filepath)
+                if part_file.is_file():
+                    try:
+                        part_file.unlink()
+                        cleaned_items.append(part_file.name)
+                    except Exception as e:
+                        logger.warning(f"Could not remove partition file '{part_file.name}': {e}")
+
+    return {
+        "cleaned_up": True,
+        "cleaned_items": cleaned_items
+    }
+
+
+
 
 @mcp.resource("config://template")
 def get_config_template() -> str:
@@ -164,7 +222,8 @@ async def validate_config(config_path: Optional[str] = None) -> str:
                 "format": config.audio.format,
                 "sample_rate": config.audio.sample_rate,
                 "channels": config.audio.channels,
-                "output_dir": config.audio.output_dir
+                "output_dir": config.audio.output_dir,
+                "cleanup_on_success": config.audio.cleanup_on_success
             }
         }
         return json.dumps(status, indent=2, ensure_ascii=False)
@@ -181,7 +240,8 @@ async def generate_tts_from_file(
     max_chars_per_partition: int = 1300,
     combine_parts: bool = True,
     resume: bool = True,
-    dry_run: bool = False
+    dry_run: bool = False,
+    cleanup_on_success: Optional[bool] = None
 ) -> str:
     """Generates 48kHz WAV audio files from a .tts script using Google AI Studio API (or dry-run simulation).
 
@@ -193,6 +253,7 @@ async def generate_tts_from_file(
         combine_parts: If True, also generates the full merged {input_name}_complete.wav file.
         resume: If True, skips already generated valid partition files from a previous run.
         dry_run: If True, simulates speech generation with synthetic PCM audio without invoking the Google API.
+        cleanup_on_success: If True, deletes logs, progress.json, and partial .wav partition files after successful completion (defaults to config setting).
     """
     path = Path(file_path)
     if not path.is_file():
@@ -407,16 +468,28 @@ async def generate_tts_from_file(
     progress_info["complete_file"] = complete_file_info
     _write_progress_json(out_directory, progress_info)
 
+    should_cleanup = cleanup_on_success if cleanup_on_success is not None else config.audio.cleanup_on_success
+
+    cleanup_info = None
+    if should_cleanup:
+        cleanup_info = _cleanup_job_artifacts(
+            output_dir=out_directory,
+            generated_files=generated_files,
+            combine_parts=combine_parts
+        )
+
     result = {
         "status": "SUCCESS",
         "input_file": str(path.resolve()),
         "output_directory": str(out_directory.resolve()),
         "total_partitions": total_chunks,
         "elapsed_seconds": total_elapsed,
-        "log_file": str((out_directory / "generation.log").resolve()),
-        "progress_file": str((out_directory / "progress.json").resolve()),
+        "log_file": str((out_directory / "generation.log").resolve()) if not should_cleanup else None,
+        "progress_file": str((out_directory / "progress.json").resolve()) if not should_cleanup else None,
         "partition_files": generated_files,
-        "complete_file": complete_file_info
+        "complete_file": complete_file_info,
+        "cleaned_up": should_cleanup,
+        "cleanup_details": cleanup_info
     }
 
     return json.dumps(result, indent=2, ensure_ascii=False)

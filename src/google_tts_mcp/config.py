@@ -42,6 +42,7 @@ class AudioConfig:
     inter_partition_pause_ms: int = 300
     naming_pattern: str = "{input_name}_part{part_num:02d}.wav"
     combine_full: bool = True
+    cleanup_on_success: bool = True
 
 
 @dataclass
@@ -50,7 +51,7 @@ class AppConfig:
     rate_limit: RateLimitConfig = field(default_factory=lambda: RateLimitConfig(max_requests_per_minute=15, max_requests_per_day=10, max_concurrent_requests=2, retry_attempts=3, backoff_factor=2.0))
     partitioning: PartitioningConfig = field(default_factory=lambda: PartitioningConfig(max_chars_per_partition=1300, respect_existing_delimiters=True))
     voices: Dict[str, Any] = field(default_factory=dict)
-    audio: AudioConfig = field(default_factory=lambda: AudioConfig(format="wav", sample_rate=48000, sample_width_bytes=2, channels=1, output_dir="output", inter_partition_pause_ms=300, naming_pattern="{input_name}_part{part_num:02d}.wav", combine_full=True))
+    audio: AudioConfig = field(default_factory=lambda: AudioConfig(format="wav", sample_rate=48000, sample_width_bytes=2, channels=1, output_dir="output", inter_partition_pause_ms=300, naming_pattern="{input_name}_part{part_num:02d}.wav", combine_full=True, cleanup_on_success=True))
 
 
 def _deep_merge_dicts(base: dict, override: dict) -> dict:
@@ -130,7 +131,8 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         output_dir=audio_data.get("output_dir", "output"),
         inter_partition_pause_ms=int(audio_data.get("inter_partition_pause_ms", 300)),
         naming_pattern=audio_data.get("naming_pattern", "{input_name}_part{part_num:02d}.wav"),
-        combine_full=bool(audio_data.get("combine_full", True))
+        combine_full=bool(audio_data.get("combine_full", True)),
+        cleanup_on_success=bool(audio_data.get("cleanup_on_success", True))
     )
 
     voices_dict = voices_data if isinstance(voices_data, dict) else {}

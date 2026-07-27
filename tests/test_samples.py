@@ -63,7 +63,8 @@ async def test_dry_run_tts_generation_all_samples(sample_path: Path):
         output_dir=str(sample_out_dir),
         max_chars_per_partition=1300,
         combine_parts=True,
-        dry_run=True
+        dry_run=True,
+        cleanup_on_success=False
     )
 
     data = json.loads(result_json)

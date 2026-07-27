@@ -98,3 +98,6 @@ audio:
   naming_pattern: "{input_name}_part{part_num:02d}.wav"
   # If true, concatenates all partition files into a single complete audio file ({input_name}_complete.wav)
   combine_full: true
+  # If true, automatically cleans up generation logs, progress.json, and partial partition WAV files upon successful task completion
+  cleanup_on_success: true
+
