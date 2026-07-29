@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 from google_tts_mcp.config import load_config
 from google_tts_mcp.partitioner import partition_text
