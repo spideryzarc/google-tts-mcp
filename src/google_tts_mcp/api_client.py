@@ -383,7 +383,8 @@ class GoogleTTSClient:
                 is_daily_quota = (
                     "generaterequestsperday" in err_msg or
                     "free_tier_requests" in err_msg or
-                    ("quota" in err_msg and ("exceeded" in err_msg or "429" in err_msg))
+                    "daily_quota" in err_msg or
+                    "quota_exceeded_per_day" in err_msg
                 )
                 if is_daily_quota and key_tracker:
                     key_tracker.is_daily_exhausted = True
